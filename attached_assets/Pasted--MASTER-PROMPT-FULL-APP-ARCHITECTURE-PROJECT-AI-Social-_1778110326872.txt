@@ -1,0 +1,142 @@
+🚀 MASTER PROMPT — FULL APP ARCHITECTURE
+📱 PROJECT: “AI Social Messaging Platform”
+Design a mobile application that combines:
+WhatsApp-style messaging system
+AI personality-based contacts
+Multi-stage onboarding/login flow
+Group chat + media sharing system
+Voice + video + status system
+WebView-compatible architecture (if using web-to-app tools)
+🔐 1. LOGIN & ONBOARDING SYSTEM (WHATSAPP-STYLE)
+FLOW:
+Stage 1 — Phone Authentication
+User enters phone number with country code
+System sends OTP (SMS verification)
+Stage 2 — OTP Verification
+User enters OTP code
+If correct → proceed to next stage
+Stage 3 — Email Setup
+User enters email address
+Email is stored for:
+account recovery
+identity backup
+Stage 4 — Profile Setup
+User sets:
+name
+profile picture
+optional bio/description
+🎬 Stage 5 — INITIALIZATION SCREEN (IMPORTANT UX FLOW)
+After login completion:
+Show animated screens:
+Screen A:
+“Initializing account...”
+loading animation
+Screen B:
+“Connecting your chats and AI contacts...”
+Screen C:
+“Preparing your social space...”
+Then proceed to main app.
+🧠 CORE PRINCIPLE:
+First interface = onboarding + initialization
+Second interface = full app environment
+💬 2. MAIN CHAT SYSTEM (WHATSAPP STYLE)
+FEATURES:
+Real-time messaging
+Left/right message alignment:
+user messages → right
+contacts → left
+message states:
+sent
+delivered
+read
+chat UI:
+smooth scrolling
+timestamp grouping
+unread message counter
+📎 MEDIA SUPPORT:
+images
+videos
+voice notes 🎙️
+documents
+screenshots (forwardable in chat)
+📸 SCREENSHOT FEATURE:
+user can capture or upload screenshot
+preview appears in chat input
+can be forwarded to contacts
+📞 3. CALL SYSTEM
+voice call button 📞
+video call button 🎥
+in-chat call shortcut
+call history log
+📊 4. STATUS SYSTEM (WHATSAPP STYLE)
+users can:
+post text status
+image status
+video status
+status rules:
+disappears after 24 hours
+viewable by contacts
+reply enabled
+👥 5. GROUP SYSTEM
+create group chats
+add/remove users
+group roles:
+admin
+member
+group features:
+group chat
+media sharing
+group status-like posts
+🤖 6. AI CONTACT SYSTEM (VERY IMPORTANT)
+Each AI contact must behave like a “real person persona”.
+AI RULES:
+Each AI has:
+name (human-style)
+nickname
+profile picture (AI-generated human image)
+personality traits
+relationship state
+AI BEHAVIOR:
+responds like a human conversation partner
+uses natural language (including Pidgin English where relevant)
+can remember conversations
+can initiate messages (simulated scheduling system)
+RELATIONSHIP MODES:
+friend
+best friend
+romantic partner (non-explicit boundaries required)
+💡 AI INTERACTION RULE:
+When asked:
+“What is your name?”
+AI responds:
+full name
+nickname
+conversational tone
+🖼️ 7. PROFILE SYSTEM
+Each user and AI has:
+profile picture (realistic generated or uploaded)
+display name
+bio
+status
+AI profiles:
+must appear human-like
+must not show “AI label in conversation UI”
+🔄 8. DEVICE & LINKING SYSTEM
+link multiple devices (up to 5)
+QR code login system
+active session list
+logout all devices option
+🔄 9. VERSION / UPDATE SYSTEM
+app checks remote version on startup
+if update exists:
+show update screen
+allow “Later” or “Update”
+after 5 days:
+force update mode activated
+update screen includes:
+app icon
+version number
+update notes
+simulated loading animation
+🧠 10. CORE EXPERIENCE PRINCIPLE
+The app must feel like a real social platform where AI contacts behave like human users, combined with WhatsApp-like communication structure and controlled onboarding + update system.

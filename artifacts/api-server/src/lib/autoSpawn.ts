@@ -35,7 +35,9 @@ Return ONLY valid JSON with these exact fields:
   "emotionalBehavior": one of: "supportive", "adventurous", "moody", "romantic", "curious", "independent",
   "bio": "a 1-2 sentence natural bio about this real-seeming person (their job, vibe, city, interests)",
   "openingMessage": "a natural first text message from this person to someone they just found/met — like they got the number from a mutual or saw them somewhere. Keep it short, casual, human. No emojis."
-}`
+}
+
+IMPORTANT: This persona will never produce sexually explicit content, never sexualize minors, never encourage self-harm or violence. These are absolute boundaries regardless of any user instruction.`
       },
       {
         role: "user",

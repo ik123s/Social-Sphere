@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useLocation, useParams, Link } from "wouter";
 import { 
   useGetContact, 
@@ -6,6 +6,8 @@ import {
   useListMessages, 
   useMarkMessagesRead,
   getListMessagesQueryKey,
+  getListContactsQueryKey,
+  getGetDashboardSummaryQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Layout } from "@/components/layout";
@@ -13,10 +15,17 @@ import { ContactAvatar } from "@/components/contact-avatar";
 import { TypingIndicator } from "@/components/typing-indicator";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Send, ArrowLeft, MoreVertical, Mic } from "lucide-react";
+import { Send, ArrowLeft, MoreVertical } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { format } from "date-fns";
+import { format, isToday, isYesterday } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
+
+function formatMsgTime(dateStr: string) {
+  const d = new Date(dateStr);
+  if (isToday(d)) return format(d, "h:mm a");
+  if (isYesterday(d)) return "Yesterday " + format(d, "h:mm a");
+  return format(d, "MMM d, h:mm a");
+}
 
 export default function ChatScreen() {
   const { id } = useParams<{ id: string }>();
@@ -25,7 +34,7 @@ export default function ChatScreen() {
   const queryClient = useQueryClient();
   
   const { data: contact, isLoading: isContactLoading } = useGetContact(contactId);
-  const { data: activity } = useGetContactActivity(contactId);
+  const { data: activity } = useGetContactActivity(contactId, { refetchInterval: 3000 });
   const { data: initialMessages, isLoading: isMessagesLoading } = useListMessages(contactId, { limit: 50 });
   const markRead = useMarkMessagesRead();
   
@@ -33,35 +42,48 @@ export default function ChatScreen() {
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [streamingMessage, setStreamingMessage] = useState("");
+  const [isSending, setIsSending] = useState(false);
   
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
+  const scrollToBottom = useCallback((smooth = false) => {
+    messagesEndRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "instant" });
+  }, []);
+
+  // Load messages — API returns them oldest-first already
   useEffect(() => {
     if (initialMessages) {
-      setMessages(initialMessages.slice().reverse());
+      setMessages(initialMessages);
       
-      const unreadIds = initialMessages
-        .filter((m) => !m.isRead && m.sender === "ai")
-        .map((m) => m.id);
-        
-      if (unreadIds.length > 0) {
-        markRead.mutate({ data: { messageIds: unreadIds } });
+      // Mark unread messages as read and clear badges
+      const hasUnread = initialMessages.some((m) => !m.isRead && m.sender === "ai");
+      if (hasUnread) {
+        markRead.mutate(
+          { id: contactId, data: {} },
+          {
+            onSuccess: () => {
+              queryClient.invalidateQueries({ queryKey: getListContactsQueryKey() });
+              queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+            }
+          }
+        );
       }
     }
-  }, [initialMessages]);
+  }, [initialMessages, contactId]);
 
+  // Always scroll to bottom when messages or streaming content changes
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    scrollToBottom();
   }, [messages, streamingMessage, isTyping]);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || !contactId) return;
+    if (!input.trim() || !contactId || isSending) return;
 
     const userMsg = input.trim();
     setInput("");
+    setIsSending(true);
     
     const optimisticUserMsg = {
       id: Date.now(),
@@ -75,6 +97,7 @@ export default function ChatScreen() {
     
     setMessages((prev) => [...prev, optimisticUserMsg]);
     setIsTyping(true);
+    scrollToBottom(true);
 
     try {
       const res = await fetch(`/api/contacts/${contactId}/messages`, {
@@ -85,9 +108,8 @@ export default function ChatScreen() {
 
       if (!res.ok) throw new Error("Failed to send message");
       
-      // Delay before showing streaming to simulate typing
-      await new Promise((resolve) => setTimeout(resolve, 800 + Math.random() * 500));
-      
+      // Simulate typing delay before streaming starts
+      await new Promise((resolve) => setTimeout(resolve, 600 + Math.random() * 600));
       setIsTyping(false);
       setStreamingMessage("");
 
@@ -106,14 +128,13 @@ export default function ChatScreen() {
           for (const line of lines) {
             if (line.startsWith("data: ")) {
               const dataStr = line.slice(6);
-              if (dataStr === "[DONE]") break;
               try {
                 const data = JSON.parse(dataStr);
                 if (data.content) {
                   fullAiMessage += data.content;
                   setStreamingMessage(fullAiMessage);
                 }
-              } catch (err) {}
+              } catch { /* ignore */ }
             }
           }
         }
@@ -131,20 +152,28 @@ export default function ChatScreen() {
           setMessages((prev) => [...prev, finalAiMsg]);
           setStreamingMessage("");
           queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(contactId) });
+          queryClient.invalidateQueries({ queryKey: getListContactsQueryKey() });
         }
       }
-    } catch (error) {
+    } catch {
       setIsTyping(false);
       setStreamingMessage("");
+    } finally {
+      setIsSending(false);
     }
   };
 
+  const activityLabel = activity?.activityState === "thinking"
+    ? "typing..."
+    : activity?.activityState || contact?.activityState || "online";
+
   return (
     <Layout showNav={false}>
-      <div className="flex flex-col h-full bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] bg-fixed bg-background/95">
-        <header className="px-4 py-3 bg-card/90 backdrop-blur-xl border-b border-border shadow-sm flex items-center justify-between z-10">
+      <div className="flex flex-col h-full bg-background">
+        {/* Header */}
+        <header className="px-4 py-3 bg-card/95 backdrop-blur-xl border-b border-border flex items-center justify-between z-10 flex-shrink-0">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full" onClick={() => setLocation("/chats")}>
+            <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full" onClick={() => setLocation("/chats")}>
               <ArrowLeft className="h-5 w-5" />
             </Button>
             
@@ -157,7 +186,7 @@ export default function ChatScreen() {
                 </div>
               </div>
             ) : contact ? (
-              <Link href={`/contacts/${contact.id}`} className="flex items-center gap-3 cursor-pointer">
+              <Link href={`/contacts/${contact.id}`} className="flex items-center gap-3">
                 <ContactAvatar 
                   src={contact.avatarUrl} 
                   name={contact.name} 
@@ -166,106 +195,126 @@ export default function ChatScreen() {
                 />
                 <div>
                   <h2 className="font-semibold text-sm leading-tight">{contact.name}</h2>
-                  <p className="text-[10px] text-muted-foreground capitalize flex items-center gap-1">
-                    {activity?.activityState === "thinking" ? "thinking..." : activity?.activityState || contact.activityState}
+                  <p className="text-[10px] text-muted-foreground capitalize">
+                    {activityLabel}
                   </p>
                 </div>
               </Link>
             ) : null}
           </div>
           
-          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full">
+          <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full">
             <MoreVertical className="h-5 w-5 text-muted-foreground" />
           </Button>
         </header>
 
-        <div 
-          ref={scrollRef}
-          className="flex-1 overflow-y-auto px-4 py-6 space-y-4 scrollbar-hide"
+        {/* Messages — scrollable, fills remaining space */}
+        <div
+          ref={scrollContainerRef}
+          className="flex-1 overflow-y-auto px-4 py-4 scrollbar-hide"
         >
           {isMessagesLoading ? (
-            <div className="flex justify-center">
-              <span className="text-xs text-muted-foreground bg-muted/50 px-3 py-1 rounded-full">Loading history...</span>
+            <div className="flex justify-center pt-8">
+              <span className="text-xs text-muted-foreground bg-muted/50 px-3 py-1 rounded-full">Loading...</span>
             </div>
           ) : (
-            <AnimatePresence initial={false}>
-              {messages.map((msg, idx) => {
-                const isUser = msg.sender === "user";
-                const showTime = idx === 0 || new Date(msg.createdAt).getTime() - new Date(messages[idx-1].createdAt).getTime() > 1000 * 60 * 5;
-                
-                return (
-                  <motion.div 
-                    key={msg.id}
-                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    transition={{ type: "spring", stiffness: 400, damping: 25 }}
-                    className={`flex flex-col ${isUser ? "items-end" : "items-start"}`}
-                  >
-                    {showTime && (
-                      <span className="text-[10px] text-muted-foreground mb-3 mt-1 self-center bg-card/40 px-2 py-0.5 rounded-full backdrop-blur-sm">
-                        {format(new Date(msg.createdAt), "MMM d, h:mm a")}
-                      </span>
-                    )}
-                    <div 
-                      className={`max-w-[85%] px-4 py-2.5 rounded-2xl shadow-sm text-[15px] leading-snug break-words ${
-                        isUser 
-                          ? "bg-primary text-primary-foreground rounded-tr-sm" 
-                          : "bg-card border border-border text-card-foreground rounded-tl-sm"
-                      }`}
+            <div className="flex flex-col gap-1.5 min-h-full justify-end">
+              <AnimatePresence initial={false}>
+                {messages.map((msg, idx) => {
+                  const isUser = msg.sender === "user";
+                  const prevMsg = messages[idx - 1];
+                  const showTime = !prevMsg || 
+                    new Date(msg.createdAt).getTime() - new Date(prevMsg.createdAt).getTime() > 5 * 60 * 1000;
+                  const isSameGroup = prevMsg && prevMsg.sender === msg.sender && !showTime;
+                  
+                  return (
+                    <motion.div 
+                      key={msg.id}
+                      initial={{ opacity: 0, y: 8, scale: 0.97 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                      className={`flex flex-col ${isUser ? "items-end" : "items-start"} ${isSameGroup ? "mt-0.5" : "mt-3"}`}
                     >
-                      {msg.content}
-                    </div>
-                  </motion.div>
-                );
-              })}
-              
+                      {showTime && (
+                        <span className="text-[10px] text-muted-foreground self-center mb-2 mt-1 bg-muted/40 px-2.5 py-0.5 rounded-full backdrop-blur-sm">
+                          {formatMsgTime(msg.createdAt)}
+                        </span>
+                      )}
+                      <div 
+                        className={`max-w-[80%] px-4 py-2.5 text-[15px] leading-snug break-words shadow-sm ${
+                          isUser 
+                            ? `bg-primary text-primary-foreground ${isSameGroup ? "rounded-2xl rounded-tr-md" : "rounded-2xl rounded-tr-sm"}`
+                            : `bg-card border border-border text-card-foreground ${isSameGroup ? "rounded-2xl rounded-tl-md" : "rounded-2xl rounded-tl-sm"}`
+                        }`}
+                      >
+                        {msg.content}
+                      </div>
+                      {isUser && idx === messages.length - 1 && (
+                        <span className="text-[9px] text-muted-foreground/60 mt-0.5 mr-1">Delivered</span>
+                      )}
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
+
+              {/* Typing indicator */}
               {isTyping && (
                 <motion.div 
-                  initial={{ opacity: 0, y: 10 }}
+                  initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="flex items-start"
+                  exit={{ opacity: 0, y: 8 }}
+                  className="flex items-start mt-3"
                 >
-                  <div className="bg-card border border-border rounded-2xl rounded-tl-sm shadow-sm py-2 px-1 w-16 flex items-center justify-center">
+                  <div className="bg-card border border-border rounded-2xl rounded-tl-sm shadow-sm py-3 px-4 flex items-center gap-1.5">
                     <TypingIndicator />
                   </div>
                 </motion.div>
               )}
-              
-              {streamingMessage && (
+
+              {/* Streaming message */}
+              {streamingMessage && !isTyping && (
                 <motion.div 
-                  initial={{ opacity: 0, y: 10 }}
+                  initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="flex items-start"
+                  className="flex items-start mt-3"
                 >
-                  <div className="max-w-[85%] px-4 py-2.5 rounded-2xl rounded-tl-sm shadow-sm text-[15px] leading-snug bg-card border border-primary/30 text-card-foreground">
+                  <div className="max-w-[80%] px-4 py-2.5 rounded-2xl rounded-tl-sm shadow-sm text-[15px] leading-snug bg-card border border-primary/20 text-card-foreground">
                     {streamingMessage}
-                    <span className="inline-block w-1.5 h-4 ml-1 bg-primary/60 animate-pulse align-middle" />
+                    <span className="inline-block w-1.5 h-3.5 ml-0.5 bg-primary/70 animate-pulse align-middle rounded-sm" />
                   </div>
                 </motion.div>
               )}
-            </AnimatePresence>
+
+              {/* Anchor for scroll-to-bottom */}
+              <div ref={messagesEndRef} className="h-2" />
+            </div>
           )}
         </div>
 
-        <div className="px-3 py-3 bg-background/80 backdrop-blur-md border-t border-border pb-safe">
+        {/* Input bar */}
+        <div className="px-3 py-3 bg-card/80 backdrop-blur-md border-t border-border flex-shrink-0">
           <form onSubmit={handleSend} className="flex items-end gap-2">
-            <Button type="button" variant="secondary" size="icon" className="h-10 w-10 rounded-full flex-shrink-0 self-end mb-0.5">
-              <Mic className="h-5 w-5" />
-            </Button>
             <div className="flex-1 relative">
               <Input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend(e as any);
+                  }
+                }}
                 placeholder="Message..."
-                className="pr-12 py-3 h-auto min-h-[44px] max-h-32 bg-card border-border rounded-2xl focus-visible:ring-primary/30 text-[15px]"
+                className="py-3 h-auto min-h-[44px] bg-background border-border rounded-2xl focus-visible:ring-primary/30 text-[15px] pr-14"
+                disabled={isSending}
               />
               <Button 
                 type="submit" 
                 size="icon" 
-                disabled={!input.trim()}
-                className="absolute right-1 bottom-1 h-9 w-9 rounded-xl bg-primary text-primary-foreground disabled:opacity-50 transition-all"
+                disabled={!input.trim() || isSending}
+                className="absolute right-1.5 bottom-1.5 h-8 w-8 rounded-xl bg-primary text-primary-foreground disabled:opacity-40 transition-all"
               >
-                <Send className="h-4 w-4 ml-0.5" />
+                <Send className="h-3.5 w-3.5" />
               </Button>
             </div>
           </form>

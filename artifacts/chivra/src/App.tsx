@@ -10,8 +10,16 @@ import ChatScreen from "@/pages/chat-screen";
 import ContactProfile from "@/pages/contact-profile";
 import StatusFeed from "@/pages/status-feed";
 import NewContact from "@/pages/new-contact";
+import Profile from "@/pages/profile";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 function Router() {
   return (
@@ -22,6 +30,7 @@ function Router() {
       <Route path="/contacts/:id" component={ContactProfile} />
       <Route path="/status" component={StatusFeed} />
       <Route path="/new-contact" component={NewContact} />
+      <Route path="/profile" component={Profile} />
       <Route component={NotFound} />
     </Switch>
   );
