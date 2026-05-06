@@ -5,3 +5,5 @@ export * from "./relationships";
 export * from "./memories";
 export * from "./statusPosts";
 export * from "./chatMessages";
+export * from "./users";
+export * from "./userConnections";

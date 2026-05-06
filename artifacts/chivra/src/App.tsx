@@ -1,8 +1,10 @@
+import { useEffect } from "react";
 import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
+import { initUser } from "@/lib/vcn";
 
 import Splash from "@/pages/splash";
 import ChatList from "@/pages/chat-list";
@@ -20,6 +22,15 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+function VcnInit() {
+  useEffect(() => {
+    initUser().catch(() => {
+      // Silent fail — VCN init is non-blocking
+    });
+  }, []);
+  return null;
+}
 
 function Router() {
   return (
@@ -41,6 +52,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+          <VcnInit />
           <Router />
         </WouterRouter>
         <Toaster />
