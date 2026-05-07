@@ -8,10 +8,12 @@ import statusRouter from "./status";
 import dashboardRouter from "./dashboard";
 import openaiRouter from "./openai";
 import usersRouter from "./users";
+import versionRouter from "./version";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use(versionRouter);
 router.use(usersRouter);
 router.use(contactsRouter);
 router.use(relationshipsRouter);
