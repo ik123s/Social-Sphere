@@ -73,6 +73,19 @@ const VERSION_HISTORY: VersionEntry[] = [
       "Persistent update dismissal with grace period tracking",
     ],
   },
+  {
+    version: "2.0.1",
+    version_code: 4,
+    update_type: "patch",
+    released_at: "2026-05-07T12:00:00Z",
+    force_update: false,
+    delay_limit_days: 3,
+    update_description: "Stability & polish patch",
+    changes: [
+      "Smoother update screen transition animations",
+      "Fixed OTP code display alignment on small screens",
+    ],
+  },
 ];
 
 // The version currently deployed on the server (latest in history)
