@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, gte } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { statusPostsTable, contactsTable } from "@workspace/db";
 import {
@@ -9,6 +9,8 @@ import {
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
+
+const since24h = () => new Date(Date.now() - 24 * 60 * 60 * 1000);
 
 router.get("/contacts/:id/status", async (req, res): Promise<void> => {
   const params = ListContactStatusParams.safeParse(req.params);
@@ -40,6 +42,7 @@ router.get("/status/feed", async (req, res): Promise<void> => {
   })
     .from(statusPostsTable)
     .innerJoin(contactsTable, eq(statusPostsTable.contactId, contactsTable.id))
+    .where(gte(statusPostsTable.createdAt, since24h()))
     .orderBy(desc(statusPostsTable.createdAt))
     .limit(50);
 

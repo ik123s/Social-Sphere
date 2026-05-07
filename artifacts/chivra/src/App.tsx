@@ -1,11 +1,13 @@
-import { useEffect } from "react";
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { useEffect, useState } from "react";
+import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { initUser } from "@/lib/vcn";
+import { isOnboardingComplete } from "@/lib/onboarding";
 
+import Onboarding from "@/pages/onboarding";
 import Splash from "@/pages/splash";
 import ChatList from "@/pages/chat-list";
 import ChatScreen from "@/pages/chat-screen";
@@ -16,23 +18,36 @@ import Profile from "@/pages/profile";
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: {
-      staleTime: 30_000,
-      refetchOnWindowFocus: false,
-    },
+    queries: { staleTime: 30_000, refetchOnWindowFocus: false },
   },
 });
 
-function VcnInit() {
-  useEffect(() => {
-    initUser().catch(() => {
-      // Silent fail — VCN init is non-blocking
-    });
-  }, []);
-  return null;
-}
+function AppShell() {
+  const [onboarded, setOnboarded] = useState<boolean | null>(null);
+  const [, setLocation] = useLocation();
 
-function Router() {
+  useEffect(() => {
+    const done = isOnboardingComplete();
+    setOnboarded(done);
+    if (done) {
+      initUser().catch(() => {});
+    }
+  }, []);
+
+  if (onboarded === null) return null; // brief flash prevention
+
+  if (!onboarded) {
+    return (
+      <Onboarding
+        onComplete={() => {
+          initUser().catch(() => {});
+          setOnboarded(true);
+          setLocation("/chats");
+        }}
+      />
+    );
+  }
+
   return (
     <Switch>
       <Route path="/" component={Splash} />
@@ -52,8 +67,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <VcnInit />
-          <Router />
+          <AppShell />
         </WouterRouter>
         <Toaster />
       </TooltipProvider>

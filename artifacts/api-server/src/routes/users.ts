@@ -123,4 +123,37 @@ router.patch("/users/:vcn", async (req, res): Promise<void> => {
   res.json(updated);
 });
 
+// In-memory OTP store (phone → { otp, expiresAt })
+const otpStore = new Map<string, { otp: string; expiresAt: number }>();
+
+function generateOtp(): string {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+// POST /api/users/request-otp  { phone }
+router.post("/users/request-otp", async (req, res): Promise<void> => {
+  const { phone } = req.body;
+  if (!phone) { res.status(400).json({ error: "phone required" }); return; }
+  const otp = generateOtp();
+  otpStore.set(phone, { otp, expiresAt: Date.now() + 10 * 60 * 1000 });
+  logger.info({ phone, otp }, "OTP generated (demo — no real SMS sent)");
+  // Return OTP in response for demo purposes (no real SMS service)
+  res.json({ success: true, otp });
+});
+
+// POST /api/users/verify-otp  { phone, otp }
+router.post("/users/verify-otp", async (req, res): Promise<void> => {
+  const { phone, otp } = req.body;
+  if (!phone || !otp) { res.status(400).json({ error: "phone and otp required" }); return; }
+  const stored = otpStore.get(phone);
+  if (!stored || Date.now() > stored.expiresAt) {
+    res.status(400).json({ error: "OTP expired or not found" }); return;
+  }
+  if (stored.otp !== String(otp)) {
+    res.status(400).json({ error: "Incorrect OTP" }); return;
+  }
+  otpStore.delete(phone);
+  res.json({ success: true });
+});
+
 export default router;

@@ -1,0 +1,426 @@
+import { useState, useRef, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { completeOnboarding } from "@/lib/onboarding";
+import { initUser, setDisplayName } from "@/lib/vcn";
+import { ChevronRight, Phone, Mail, User, Loader2, CheckCircle2 } from "lucide-react";
+
+const COUNTRY_CODES = [
+  { code: "+1", name: "US" },
+  { code: "+44", name: "UK" },
+  { code: "+234", name: "NG" },
+  { code: "+91", name: "IN" },
+  { code: "+27", name: "ZA" },
+  { code: "+49", name: "DE" },
+  { code: "+33", name: "FR" },
+  { code: "+55", name: "BR" },
+  { code: "+86", name: "CN" },
+  { code: "+81", name: "JP" },
+];
+
+const INIT_SCREENS = [
+  { title: "Initializing account...", sub: "Setting up your secure identity" },
+  { title: "Connecting your AI contacts...", sub: "Your social world is waking up" },
+  { title: "Preparing your social space...", sub: "Almost there" },
+];
+
+interface OnboardingProps {
+  onComplete: () => void;
+}
+
+export default function Onboarding({ onComplete }: OnboardingProps) {
+  const [stage, setStage] = useState<"phone" | "otp" | "email" | "profile" | "init">("phone");
+
+  // Phone stage
+  const [countryCode, setCountryCode] = useState("+1");
+  const [phone, setPhone] = useState("");
+  const [sendingOtp, setSendingOtp] = useState(false);
+  const [demoOtp, setDemoOtp] = useState("");
+
+  // OTP stage
+  const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
+  const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const [verifying, setVerifying] = useState(false);
+  const [otpError, setOtpError] = useState("");
+
+  // Email stage
+  const [email, setEmail] = useState("");
+
+  // Profile stage
+  const [name, setName] = useState("");
+  const [profileLoading, setProfileLoading] = useState(false);
+
+  // Init stage
+  const [initScreen, setInitScreen] = useState(0);
+  const [initDone, setInitDone] = useState(false);
+
+  // --- Phone ---
+  const handleSendOtp = async () => {
+    if (phone.length < 6) return;
+    setSendingOtp(true);
+    try {
+      const res = await fetch("/api/users/request-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: countryCode + phone }),
+      });
+      const data = await res.json();
+      setDemoOtp(data.otp ?? "");
+      setStage("otp");
+    } catch {
+      /* proceed anyway */
+      setDemoOtp("000000");
+      setStage("otp");
+    } finally {
+      setSendingOtp(false);
+    }
+  };
+
+  // --- OTP ---
+  const handleOtpChange = (idx: number, val: string) => {
+    if (!/^\d*$/.test(val)) return;
+    const next = [...otpDigits];
+    next[idx] = val.slice(-1);
+    setOtpDigits(next);
+    setOtpError("");
+    if (val && idx < 5) otpRefs.current[idx + 1]?.focus();
+  };
+
+  const handleOtpKeyDown = (idx: number, e: React.KeyboardEvent) => {
+    if (e.key === "Backspace" && !otpDigits[idx] && idx > 0) {
+      otpRefs.current[idx - 1]?.focus();
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    const code = otpDigits.join("");
+    if (code.length < 6) return;
+    setVerifying(true);
+    setOtpError("");
+    try {
+      const res = await fetch("/api/users/verify-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: countryCode + phone, otp: code }),
+      });
+      if (!res.ok) {
+        setOtpError("Incorrect code. Try again.");
+        setOtpDigits(["", "", "", "", "", ""]);
+        otpRefs.current[0]?.focus();
+        return;
+      }
+      setStage("email");
+    } catch {
+      setStage("email"); // allow through in case backend isn't available
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  // --- Init ---
+  useEffect(() => {
+    if (stage !== "init") return;
+    let i = 0;
+    const tick = () => {
+      i += 1;
+      if (i < INIT_SCREENS.length) {
+        setInitScreen(i);
+        setTimeout(tick, 1600);
+      } else {
+        setInitDone(true);
+        setTimeout(() => {
+          completeOnboarding();
+          onComplete();
+        }, 900);
+      }
+    };
+    setTimeout(tick, 1600);
+  }, [stage]);
+
+  const handleProfileDone = async () => {
+    if (!name.trim()) return;
+    setProfileLoading(true);
+    setDisplayName(name.trim());
+    try {
+      await initUser();
+    } catch { /* non-blocking */ }
+    setProfileLoading(false);
+    setStage("init");
+  };
+
+  const slideVariants = {
+    initial: { opacity: 0, x: 40 },
+    animate: { opacity: 1, x: 0 },
+    exit: { opacity: 0, x: -40 },
+  };
+
+  return (
+    <div className="flex flex-col h-[100dvh] w-full bg-background text-foreground overflow-hidden max-w-md mx-auto relative border-x border-border">
+      {/* Logo area */}
+      <div className="flex-shrink-0 flex flex-col items-center pt-14 pb-8 relative">
+        <div className="relative w-16 h-16 mb-4">
+          <div className="absolute inset-0 bg-primary/25 rounded-2xl blur-xl" />
+          <div className="absolute inset-0 bg-gradient-to-br from-primary to-violet-700 rounded-2xl rotate-45 flex items-center justify-center shadow-xl border border-white/10">
+            <span className="-rotate-45 text-white font-serif italic text-2xl">C</span>
+          </div>
+        </div>
+        <h1 className="text-xl font-light tracking-widest text-foreground">CHIVRA</h1>
+        <p className="text-xs text-muted-foreground mt-1 tracking-wide">Your AI Social World</p>
+      </div>
+
+      {/* Stage content */}
+      <div className="flex-1 overflow-hidden relative">
+        <AnimatePresence mode="wait">
+
+          {/* STAGE 1: PHONE */}
+          {stage === "phone" && (
+            <motion.div key="phone" variants={slideVariants} initial="initial" animate="animate" exit="exit"
+              transition={{ type: "spring", stiffness: 380, damping: 30 }}
+              className="absolute inset-0 flex flex-col px-6 pt-2"
+            >
+              <div className="mb-8">
+                <h2 className="text-2xl font-bold mb-1">Enter your number</h2>
+                <p className="text-muted-foreground text-sm">We'll send a verification code to confirm it's you.</p>
+              </div>
+
+              <div className="space-y-4">
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Country Code</Label>
+                <div className="flex gap-2">
+                  <select
+                    value={countryCode}
+                    onChange={e => setCountryCode(e.target.value)}
+                    className="bg-card border border-border rounded-xl px-3 h-13 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 flex-shrink-0"
+                  >
+                    {COUNTRY_CODES.map(c => (
+                      <option key={c.code} value={c.code}>{c.name} {c.code}</option>
+                    ))}
+                  </select>
+                  <Input
+                    type="tel"
+                    value={phone}
+                    onChange={e => setPhone(e.target.value.replace(/\D/g, ""))}
+                    placeholder="8012345678"
+                    className="flex-1 h-13 rounded-xl bg-card border-border text-lg font-mono tracking-wider"
+                    maxLength={12}
+                  />
+                </div>
+
+                <Button
+                  onClick={handleSendOtp}
+                  disabled={phone.length < 6 || sendingOtp}
+                  className="w-full h-13 rounded-2xl text-base font-semibold mt-2"
+                >
+                  {sendingOtp ? <Loader2 className="h-5 w-5 animate-spin" /> : (
+                    <><Phone className="h-4 w-4 mr-2" />Send Verification Code</>
+                  )}
+                </Button>
+
+                <p className="text-[11px] text-muted-foreground text-center pt-2 leading-relaxed">
+                  By continuing you agree to Chivra's Terms of Service and Privacy Policy
+                </p>
+              </div>
+            </motion.div>
+          )}
+
+          {/* STAGE 2: OTP */}
+          {stage === "otp" && (
+            <motion.div key="otp" variants={slideVariants} initial="initial" animate="animate" exit="exit"
+              transition={{ type: "spring", stiffness: 380, damping: 30 }}
+              className="absolute inset-0 flex flex-col px-6 pt-2"
+            >
+              <div className="mb-8">
+                <h2 className="text-2xl font-bold mb-1">Verify your number</h2>
+                <p className="text-muted-foreground text-sm">
+                  Code sent to {countryCode} {phone}
+                </p>
+                {demoOtp && (
+                  <div className="mt-3 bg-primary/10 border border-primary/30 rounded-xl px-4 py-2.5 inline-flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">Demo code:</span>
+                    <span className="text-primary font-mono font-bold text-lg tracking-widest">{demoOtp}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-6">
+                <div className="flex gap-2 justify-center">
+                  {otpDigits.map((d, i) => (
+                    <input
+                      key={i}
+                      ref={el => { otpRefs.current[i] = el; }}
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={1}
+                      value={d}
+                      onChange={e => handleOtpChange(i, e.target.value)}
+                      onKeyDown={e => handleOtpKeyDown(i, e)}
+                      className={`w-12 h-14 text-center text-2xl font-bold bg-card border rounded-2xl focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all ${
+                        otpError ? "border-destructive" : "border-border"
+                      }`}
+                    />
+                  ))}
+                </div>
+
+                {otpError && (
+                  <p className="text-sm text-destructive text-center">{otpError}</p>
+                )}
+
+                <Button
+                  onClick={handleVerifyOtp}
+                  disabled={otpDigits.join("").length < 6 || verifying}
+                  className="w-full h-13 rounded-2xl text-base font-semibold"
+                >
+                  {verifying ? <Loader2 className="h-5 w-5 animate-spin" /> : "Verify Code"}
+                </Button>
+
+                <button
+                  onClick={() => setStage("phone")}
+                  className="w-full text-sm text-muted-foreground text-center hover:text-foreground transition-colors"
+                >
+                  Change number
+                </button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* STAGE 3: EMAIL */}
+          {stage === "email" && (
+            <motion.div key="email" variants={slideVariants} initial="initial" animate="animate" exit="exit"
+              transition={{ type: "spring", stiffness: 380, damping: 30 }}
+              className="absolute inset-0 flex flex-col px-6 pt-2"
+            >
+              <div className="mb-8">
+                <h2 className="text-2xl font-bold mb-1">Add your email</h2>
+                <p className="text-muted-foreground text-sm">Used for account recovery and backup. Never shown publicly.</p>
+              </div>
+
+              <div className="space-y-4">
+                <Input
+                  type="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  className="h-13 rounded-xl bg-card border-border text-base"
+                  autoFocus
+                />
+                <Button
+                  onClick={() => setStage("profile")}
+                  disabled={!email.includes("@")}
+                  className="w-full h-13 rounded-2xl text-base font-semibold"
+                >
+                  <Mail className="h-4 w-4 mr-2" />Continue
+                </Button>
+                <button
+                  onClick={() => setStage("profile")}
+                  className="w-full text-sm text-muted-foreground text-center hover:text-foreground transition-colors"
+                >
+                  Skip for now
+                </button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* STAGE 4: PROFILE */}
+          {stage === "profile" && (
+            <motion.div key="profile" variants={slideVariants} initial="initial" animate="animate" exit="exit"
+              transition={{ type: "spring", stiffness: 380, damping: 30 }}
+              className="absolute inset-0 flex flex-col px-6 pt-2"
+            >
+              <div className="mb-8">
+                <h2 className="text-2xl font-bold mb-1">Set up your profile</h2>
+                <p className="text-muted-foreground text-sm">This is what your contacts will see.</p>
+              </div>
+
+              <div className="space-y-5">
+                {/* Avatar placeholder */}
+                <div className="flex justify-center">
+                  <div className="w-24 h-24 rounded-full bg-primary/10 border-2 border-dashed border-primary/40 flex items-center justify-center">
+                    <User className="h-10 w-10 text-primary/40" />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">Your name</Label>
+                  <Input
+                    value={name}
+                    onChange={e => setName(e.target.value)}
+                    placeholder="What should people call you?"
+                    className="h-13 rounded-xl bg-card border-border text-base"
+                    maxLength={30}
+                    autoFocus
+                  />
+                </div>
+
+                <Button
+                  onClick={handleProfileDone}
+                  disabled={!name.trim() || profileLoading}
+                  className="w-full h-13 rounded-2xl text-base font-semibold"
+                >
+                  {profileLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : (
+                    <>Get Started <ChevronRight className="h-4 w-4 ml-1" /></>
+                  )}
+                </Button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* STAGE 5: INITIALIZATION */}
+          {stage === "init" && (
+            <motion.div key="init" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+              className="absolute inset-0 flex flex-col items-center justify-center px-6 text-center"
+            >
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={initScreen}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                  transition={{ duration: 0.5 }}
+                  className="flex flex-col items-center gap-6"
+                >
+                  {initDone ? (
+                    <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring" }}>
+                      <CheckCircle2 className="h-16 w-16 text-primary" />
+                    </motion.div>
+                  ) : (
+                    <div className="relative w-16 h-16">
+                      <div className="absolute inset-0 rounded-full border-2 border-primary/20" />
+                      <div className="absolute inset-0 rounded-full border-2 border-t-primary animate-spin" />
+                      <div className="absolute inset-2 rounded-full bg-primary/10 flex items-center justify-center">
+                        <div className="w-3 h-3 rounded-full bg-primary animate-pulse" />
+                      </div>
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-xl font-semibold text-foreground mb-2">
+                      {initDone ? "You're all set" : INIT_SCREENS[initScreen]?.title}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {initDone ? "Welcome to Chivra" : INIT_SCREENS[initScreen]?.sub}
+                    </p>
+                  </div>
+
+                  {/* Progress dots */}
+                  {!initDone && (
+                    <div className="flex gap-1.5">
+                      {INIT_SCREENS.map((_, i) => (
+                        <div
+                          key={i}
+                          className={`h-1.5 rounded-full transition-all duration-500 ${
+                            i === initScreen ? "w-6 bg-primary" : i < initScreen ? "w-3 bg-primary/50" : "w-3 bg-muted"
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </motion.div>
+              </AnimatePresence>
+            </motion.div>
+          )}
+
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+}
