@@ -1,57 +1,102 @@
-const APP_VERSION = "1.0.0";
-const DISMISSED_KEY = "chivra_update_dismissed_at";
-const FORCE_DAYS = 5;
+// ── Client version ────────────────────────────────────────────────────────────
+// This must be updated whenever a new version ships to clients.
+const CLIENT_VERSION = "1.1.0";
+const CLIENT_VERSION_CODE = 2;
 
-export interface VersionInfo {
-  latestVersion: string;
-  currentVersion: string;
-  forceAfterDays: number;
-  updateNotes: string[];
-  updateUrl: string;
+// ── Storage keys ─────────────────────────────────────────────────────────────
+const DISMISSED_KEY = "chivra_update_dismissed_v";   // + version string suffix
+const APPLIED_KEY   = "chivra_applied_version_code";
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+export interface VersionResponse {
+  latest_version: string;
+  latest_version_code: number;
+  update_type: "patch" | "minor" | "major";
+  force_update: boolean;
+  delay_limit_days: number;
+  update_description: string;
+  changes: string[];
+  released_at: string;
+  minimum_supported_version_code: number;
 }
 
-export async function fetchVersionInfo(): Promise<VersionInfo | null> {
+export interface UpdateState {
+  available: boolean;
+  forced: boolean;
+  info: VersionResponse;
+}
+
+// ── API ───────────────────────────────────────────────────────────────────────
+export async function fetchVersionInfo(): Promise<VersionResponse | null> {
   try {
     const res = await fetch("/api/version");
     if (!res.ok) return null;
-    return await res.json();
+    return await res.json() as VersionResponse;
   } catch {
     return null;
   }
 }
 
-export function getClientVersion(): string {
-  return APP_VERSION;
+export function getClientVersion() {
+  return { version: CLIENT_VERSION, version_code: CLIENT_VERSION_CODE };
 }
 
-export function isUpdateAvailable(info: VersionInfo): boolean {
-  return info.latestVersion !== getClientVersion();
+// ── Dismissal logic ───────────────────────────────────────────────────────────
+function dismissedKey(version: string) {
+  return DISMISSED_KEY + version;
 }
 
-/** Returns true when the user already dismissed and the grace window hasn't expired. */
-export function isWithinGracePeriod(): boolean {
-  const raw = localStorage.getItem(DISMISSED_KEY);
-  if (!raw) return false;
-  const dismissedAt = parseInt(raw, 10);
-  if (isNaN(dismissedAt)) return false;
-  const daysSince = (Date.now() - dismissedAt) / (1000 * 60 * 60 * 24);
-  return daysSince < FORCE_DAYS;
+export function dismissUpdate(version: string) {
+  localStorage.setItem(dismissedKey(version), String(Date.now()));
 }
 
-/** Returns true when dismissed but grace period has now expired (force update). */
-export function isForceUpdate(): boolean {
-  const raw = localStorage.getItem(DISMISSED_KEY);
-  if (!raw) return false;
-  const dismissedAt = parseInt(raw, 10);
-  if (isNaN(dismissedAt)) return false;
-  const daysSince = (Date.now() - dismissedAt) / (1000 * 60 * 60 * 24);
-  return daysSince >= FORCE_DAYS;
+export function getDaysSinceDismissed(version: string): number | null {
+  const raw = localStorage.getItem(dismissedKey(version));
+  if (!raw) return null;
+  const ts = parseInt(raw, 10);
+  if (isNaN(ts)) return null;
+  return (Date.now() - ts) / (1000 * 60 * 60 * 24);
 }
 
-export function dismissUpdate() {
-  localStorage.setItem(DISMISSED_KEY, String(Date.now()));
+export function clearDismissed(version: string) {
+  localStorage.removeItem(dismissedKey(version));
 }
 
-export function clearDismissed() {
-  localStorage.removeItem(DISMISSED_KEY);
+// ── Applied version tracking ──────────────────────────────────────────────────
+export function getAppliedVersionCode(): number {
+  return parseInt(localStorage.getItem(APPLIED_KEY) ?? "0", 10);
+}
+
+export function markVersionApplied(version_code: number) {
+  localStorage.setItem(APPLIED_KEY, String(version_code));
+}
+
+// ── Decision logic ────────────────────────────────────────────────────────────
+export function resolveUpdateState(info: VersionResponse): UpdateState | null {
+  const client = getClientVersion();
+
+  // No update needed — already on latest or newer
+  if (info.latest_version_code <= client.version_code) return null;
+
+  // Below minimum supported — force block regardless
+  if (client.version_code < info.minimum_supported_version_code) {
+    return { available: true, forced: true, info };
+  }
+
+  // Major version OR server flags force_update → always force
+  if (info.update_type === "major" || info.force_update) {
+    return { available: true, forced: true, info };
+  }
+
+  // Check if grace period expired
+  const days = getDaysSinceDismissed(info.latest_version);
+  if (days !== null && days >= info.delay_limit_days) {
+    return { available: true, forced: true, info };
+  }
+
+  // Within grace period — skip silently
+  if (days !== null && days < info.delay_limit_days) return null;
+
+  // First time seeing this update — prompt (not forced)
+  return { available: true, forced: false, info };
 }

@@ -8,10 +8,8 @@ import { initUser } from "@/lib/vcn";
 import { isOnboardingComplete } from "@/lib/onboarding";
 import {
   fetchVersionInfo,
-  isUpdateAvailable,
-  isWithinGracePeriod,
-  isForceUpdate,
-  type VersionInfo,
+  resolveUpdateState,
+  type UpdateState,
 } from "@/lib/version";
 
 import UpdateScreen from "@/pages/update-screen";
@@ -30,38 +28,27 @@ const queryClient = new QueryClient({
   },
 });
 
-type AppPhase = "loading" | "update" | "onboarding" | "app";
+type Phase = "loading" | "update" | "onboarding" | "app";
 
 function AppShell() {
-  const [phase, setPhase] = useState<AppPhase>("loading");
-  const [updateInfo, setUpdateInfo] = useState<VersionInfo | null>(null);
-  const [forceUpdate, setForceUpdate] = useState(false);
+  const [phase, setPhase] = useState<Phase>("loading");
+  const [updateState, setUpdateState] = useState<UpdateState | null>(null);
   const [, setLocation] = useLocation();
 
   useEffect(() => {
     (async () => {
-      // 1. Check for updates
+      // 1. Version check
       const info = await fetchVersionInfo();
-
-      if (info && isUpdateAvailable(info)) {
-        if (isForceUpdate()) {
-          // Grace period expired — must update
-          setUpdateInfo(info);
-          setForceUpdate(true);
+      if (info) {
+        const state = resolveUpdateState(info);
+        if (state) {
+          setUpdateState(state);
           setPhase("update");
           return;
         }
-        if (!isWithinGracePeriod()) {
-          // Never dismissed before — show update prompt
-          setUpdateInfo(info);
-          setForceUpdate(false);
-          setPhase("update");
-          return;
-        }
-        // Within grace period — silently skip update
       }
 
-      // 2. Check onboarding
+      // 2. Onboarding check
       if (!isOnboardingComplete()) {
         setPhase("onboarding");
         return;
@@ -73,15 +60,17 @@ function AppShell() {
     })();
   }, []);
 
-  const handleUpdateDone = () => {
+  const afterUpdate = () => {
     if (!isOnboardingComplete()) {
       setPhase("onboarding");
     } else {
       initUser().catch(() => {});
       setPhase("app");
+      setLocation("/chats");
     }
   };
 
+  // ── Loading splash ───────────────────────────────────────────────────────
   if (phase === "loading") {
     return (
       <div className="flex h-[100dvh] w-full max-w-md mx-auto items-center justify-center border-x border-border bg-background">
@@ -90,25 +79,21 @@ function AppShell() {
             <div className="absolute inset-0 rounded-full border-2 border-primary/15" />
             <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-primary animate-spin" />
             <div className="absolute inset-2 bg-gradient-to-br from-primary to-violet-700 rounded-full flex items-center justify-center">
-              <span className="text-white font-serif italic text-2xl">C</span>
+              <span className="text-white font-serif italic text-2xl select-none">C</span>
             </div>
           </div>
-          <p className="text-xs text-muted-foreground tracking-widest uppercase">Chivra</p>
+          <p className="text-[11px] text-muted-foreground tracking-widest uppercase">Chivra</p>
         </div>
       </div>
     );
   }
 
-  if (phase === "update" && updateInfo) {
-    return (
-      <UpdateScreen
-        info={updateInfo}
-        forced={forceUpdate}
-        onLater={handleUpdateDone}
-      />
-    );
+  // ── Update gate ──────────────────────────────────────────────────────────
+  if (phase === "update" && updateState) {
+    return <UpdateScreen state={updateState} onComplete={afterUpdate} />;
   }
 
+  // ── Onboarding ───────────────────────────────────────────────────────────
   if (phase === "onboarding") {
     return (
       <Onboarding
@@ -121,6 +106,7 @@ function AppShell() {
     );
   }
 
+  // ── Main app ─────────────────────────────────────────────────────────────
   return (
     <Switch>
       <Route path="/" component={Splash} />
