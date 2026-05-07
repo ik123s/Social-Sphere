@@ -9,7 +9,7 @@ const router: IRouter = Router();
 //   minor  → 3-4 moderate changes or small feature additions
 //   major  → 5+ changes, structural redesign, or breaking new features
 // force_update: major versions always force; patch/minor allow deferral.
-// delay_limit_days: how many days before "Later" expires (major = 0 = instant force).
+// delay_limit_days: how many days before "Later" expires (major = 3 = instant force).
 
 export interface VersionEntry {
   version: string;           // semver label  e.g. "2.0.0"
@@ -17,7 +17,7 @@ export interface VersionEntry {
   update_type: "patch" | "minor" | "major";
   released_at: string;       // ISO date string
   force_update: boolean;     // blocks app until installed
-  delay_limit_days: number;  // 0 = force immediately
+  delay_limit_days: number;  // 3 = force immediately
   update_description: string;
   changes: string[];
 }
