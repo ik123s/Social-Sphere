@@ -1,10 +1,12 @@
 // ── Client version ────────────────────────────────────────────────────────────
-// This must be updated whenever a new version ships to clients.
+// This must match the highest version_code the user has been shipped as a
+// built client. Applied version (from localStorage) takes over after an
+// in-session update so the screen never re-triggers for the same release.
 const CLIENT_VERSION = "1.1.0";
 const CLIENT_VERSION_CODE = 2;
 
 // ── Storage keys ─────────────────────────────────────────────────────────────
-const DISMISSED_KEY = "chivra_update_dismissed_v";   // + version string suffix
+const DISMISSED_KEY = "chivra_update_dismissed_v"; // + version string suffix
 const APPLIED_KEY   = "chivra_applied_version_code";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -41,6 +43,21 @@ export function getClientVersion() {
   return { version: CLIENT_VERSION, version_code: CLIENT_VERSION_CODE };
 }
 
+// ── Applied version tracking ──────────────────────────────────────────────────
+// After the user completes an update, we store the applied version_code in
+// localStorage so resolveUpdateState treats them as already up to date —
+// even though the JS bundle version_code hasn't changed.
+export function getAppliedVersionCode(): number {
+  const raw = localStorage.getItem(APPLIED_KEY);
+  if (!raw) return 0;
+  const n = parseInt(raw, 10);
+  return isNaN(n) ? 0 : n;
+}
+
+export function markVersionApplied(version_code: number) {
+  localStorage.setItem(APPLIED_KEY, String(version_code));
+}
+
 // ── Dismissal logic ───────────────────────────────────────────────────────────
 function dismissedKey(version: string) {
   return DISMISSED_KEY + version;
@@ -62,41 +79,35 @@ export function clearDismissed(version: string) {
   localStorage.removeItem(dismissedKey(version));
 }
 
-// ── Applied version tracking ──────────────────────────────────────────────────
-export function getAppliedVersionCode(): number {
-  return parseInt(localStorage.getItem(APPLIED_KEY) ?? "0", 10);
-}
-
-export function markVersionApplied(version_code: number) {
-  localStorage.setItem(APPLIED_KEY, String(version_code));
-}
-
 // ── Decision logic ────────────────────────────────────────────────────────────
 export function resolveUpdateState(info: VersionResponse): UpdateState | null {
   const client = getClientVersion();
+  // The effective version is the highest of the compiled bundle OR what the
+  // user has already applied in this browser via an in-session update.
+  const effectiveCode = Math.max(client.version_code, getAppliedVersionCode());
 
-  // No update needed — already on latest or newer
-  if (info.latest_version_code <= client.version_code) return null;
+  // Already on latest (or applied it this session) — no update needed
+  if (info.latest_version_code <= effectiveCode) return null;
 
-  // Below minimum supported — force block regardless
-  if (client.version_code < info.minimum_supported_version_code) {
+  // Below minimum supported — force block regardless of type
+  if (effectiveCode < info.minimum_supported_version_code) {
     return { available: true, forced: true, info };
   }
 
-  // Major version OR server flags force_update → always force
+  // Major version OR server explicitly flags force_update → always force
   if (info.update_type === "major" || info.force_update) {
     return { available: true, forced: true, info };
   }
 
-  // Check if grace period expired
+  // Grace period expired → escalate to forced
   const days = getDaysSinceDismissed(info.latest_version);
   if (days !== null && days >= info.delay_limit_days) {
     return { available: true, forced: true, info };
   }
 
-  // Within grace period — skip silently
+  // Within active grace period — skip silently
   if (days !== null && days < info.delay_limit_days) return null;
 
-  // First time seeing this update — prompt (not forced)
+  // First time seeing this update — prompt (deferrable)
   return { available: true, forced: false, info };
 }
