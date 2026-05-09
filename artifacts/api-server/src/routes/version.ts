@@ -86,6 +86,25 @@ const VERSION_HISTORY: VersionEntry[] = [
       "Fixed OTP code display alignment on small screens",
     ],
   },
+  {
+    version: "3.0.0",
+    version_code: 5,
+    update_type: "major",
+    released_at: "2026-05-09T00:00:00Z",
+    force_update: false,
+    delay_limit_days: 5,
+    update_description: "Chivra 3.0 — AI that actually feels alive",
+    changes: [
+      "AI contacts now text you first — proactive follow-ups when you go quiet",
+      "Time-aware AI: messages match the actual time of day (morning energy, late-night vibes)",
+      "Much shorter, more natural AI responses — real texting, not essays",
+      "Voice and video call UI with animated incoming/outgoing screens",
+      "Swipe right on any message to reply — WhatsApp-style",
+      "Status bubbles row on chat list (just like WhatsApp)",
+      "Post your own status updates with gradient backgrounds",
+      "Working settings panels: Privacy, Notifications, Chat appearance, Storage, and more",
+    ],
+  },
 ];
 
 // The version currently deployed on the server (latest in history)
