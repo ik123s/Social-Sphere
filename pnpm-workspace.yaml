@@ -159,6 +159,7 @@ overrides:
   "@esbuild-kit/esm-loader": "npm:tsx@^4.21.0"
   esbuild: "0.27.3"
   # Security: fix vulnerable transitive dependencies
+  "fast-uri": "^3.1.2"
   "micromatch>picomatch": "^2.3.2"
   "vite>picomatch": "^4.0.4"
   "path-to-regexp": "^8.4.0"
