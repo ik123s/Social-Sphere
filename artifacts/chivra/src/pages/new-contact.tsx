@@ -9,12 +9,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Sparkles, Loader2, Image as ImageIcon, Search, UserPlus, Bot, Users, CheckCircle2 } from "lucide-react";
+import { Sparkles, Loader2, Image as ImageIcon, Search, UserPlus, Bot, Users, CheckCircle2, Hash, MessageCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { ContactAvatar } from "@/components/contact-avatar";
 import { getStoredVcn, formatVcn } from "@/lib/vcn";
 
-type Tab = "ai" | "vcn";
+type Tab = "ai" | "vcn" | "id";
 
 export default function NewContact() {
   const [, setLocation] = useLocation();
@@ -42,6 +43,15 @@ export default function NewContact() {
   const [searchError, setSearchError] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [connected, setConnected] = useState(false);
+
+  // Find by ID
+  const [idInput, setIdInput] = useState("");
+  const [findingId, setFindingId] = useState(false);
+  const [foundContact, setFoundContact] = useState<{
+    id: number; name: string; bio: string | null; avatarUrl: string | null;
+    personalityTone: string; gender: string; activityState: string;
+  } | null>(null);
+  const [idError, setIdError] = useState("");
 
   const handleGenerateImage = async () => {
     if (!formData.name) {
@@ -130,6 +140,31 @@ export default function NewContact() {
     }
   };
 
+  const handleFindById = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const id = idInput.trim().replace(/\D/g, "");
+    if (!id) {
+      setIdError("Enter a valid contact ID (numbers only)");
+      return;
+    }
+    setFindingId(true);
+    setFoundContact(null);
+    setIdError("");
+    try {
+      const res = await fetch(`/api/contacts/find/${id}`);
+      if (!res.ok) {
+        setIdError("No contact found with that ID. Double-check the number.");
+        return;
+      }
+      const contact = await res.json();
+      setFoundContact(contact);
+    } catch {
+      setIdError("Something went wrong. Try again.");
+    } finally {
+      setFindingId(false);
+    }
+  };
+
   const initials = (name: string) => name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
 
   return (
@@ -137,28 +172,37 @@ export default function NewContact() {
       <div className="flex flex-col min-h-full pb-24">
         <header className="px-4 pt-12 pb-4 bg-background/95 backdrop-blur z-10 sticky top-0 border-b border-border">
           <h1 className="text-2xl font-bold tracking-tight">Add Contact</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">Create an AI contact or find a real user by VCN</p>
+          <p className="text-muted-foreground text-sm mt-0.5">Create AI, find by VCN, or add by contact ID</p>
         </header>
 
         {/* Tab switcher */}
         <div className="px-4 pt-4">
-          <div className="flex gap-2 bg-muted/40 p-1 rounded-2xl border border-border">
+          <div className="flex gap-1 bg-muted/40 p-1 rounded-2xl border border-border">
             <button
               onClick={() => setTab("ai")}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all ${
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-medium transition-all ${
                 tab === "ai" ? "bg-card text-foreground shadow-sm border border-border" : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              <Bot className="h-4 w-4" />
+              <Bot className="h-3.5 w-3.5" />
               AI Contact
             </button>
             <button
+              onClick={() => setTab("id")}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-medium transition-all ${
+                tab === "id" ? "bg-card text-foreground shadow-sm border border-border" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Hash className="h-3.5 w-3.5" />
+              Find by ID
+            </button>
+            <button
               onClick={() => setTab("vcn")}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all ${
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-medium transition-all ${
                 tab === "vcn" ? "bg-card text-foreground shadow-sm border border-border" : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              <Users className="h-4 w-4" />
+              <Users className="h-3.5 w-3.5" />
               Find by VCN
             </button>
           </div>
@@ -266,6 +310,101 @@ export default function NewContact() {
                 </Button>
               </form>
             </motion.div>
+
+          ) : tab === "id" ? (
+            <motion.div
+              key="id"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 12 }}
+              transition={{ duration: 0.2 }}
+              className="px-4 pt-5 pb-6 space-y-5"
+            >
+              {/* Explainer */}
+              <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4">
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Paste a contact ID shared with you in chat. You can start chatting with them immediately.
+                </p>
+              </div>
+
+              {/* Search form */}
+              <form onSubmit={handleFindById} className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">Contact ID</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={idInput}
+                      onChange={e => {
+                        setIdInput(e.target.value);
+                        setIdError("");
+                        setFoundContact(null);
+                      }}
+                      placeholder="e.g. 3"
+                      className="rounded-xl h-12 bg-background border-border font-mono tracking-widest text-base"
+                      type="text"
+                      inputMode="numeric"
+                    />
+                    <Button
+                      type="submit"
+                      className="h-12 px-4 rounded-xl flex-shrink-0"
+                      disabled={findingId || !idInput.trim()}
+                    >
+                      {findingId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                  {idError && (
+                    <p className="text-xs text-destructive px-1">{idError}</p>
+                  )}
+                </div>
+              </form>
+
+              {/* Found contact preview */}
+              <AnimatePresence>
+                {foundContact && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    className="bg-card border border-border rounded-3xl p-5 space-y-4 shadow-sm"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="p-0.5 rounded-full bg-gradient-to-tr from-violet-500 to-pink-500">
+                        <div className="p-0.5 rounded-full bg-card">
+                          <ContactAvatar
+                            src={foundContact.avatarUrl}
+                            name={foundContact.name}
+                            activityState={foundContact.activityState}
+                            size="md"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-lg leading-tight">{foundContact.name}</p>
+                        {foundContact.bio && (
+                          <p className="text-sm text-muted-foreground leading-snug mt-0.5">{foundContact.bio}</p>
+                        )}
+                        <div className="flex items-center gap-3 mt-1.5">
+                          <span className="text-[10px] text-primary/70 font-mono bg-primary/10 px-2 py-0.5 rounded-full">
+                            ID: {foundContact.id}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground capitalize">{foundContact.personalityTone}</span>
+                          <span className="text-[10px] text-muted-foreground capitalize">{foundContact.activityState}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <Button
+                      className="w-full h-11 rounded-2xl font-semibold"
+                      onClick={() => setLocation(`/chats/${foundContact.id}`)}
+                    >
+                      <MessageCircle className="h-4 w-4 mr-2" />
+                      Start Chatting
+                    </Button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+
           ) : (
             <motion.div
               key="vcn"

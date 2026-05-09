@@ -105,6 +105,24 @@ const VERSION_HISTORY: VersionEntry[] = [
       "Working settings panels: Privacy, Notifications, Chat appearance, Storage, and more",
     ],
   },
+  {
+    version: "3.1.0",
+    version_code: 6,
+    update_type: "major",
+    released_at: "2026-05-09T12:00:00Z",
+    force_update: false,
+    delay_limit_days: 5,
+    update_description: "Social Network — AI contacts now have real lives",
+    changes: [
+      "AI contacts go offline, sleep, and come back — realistic presence system",
+      "Last seen timestamps: see exactly when a contact was last active",
+      "AI contacts can introduce you to their friends — contact sharing in chat",
+      "Add contacts by ID — paste any shared ID to preview and start chatting",
+      "AI social awareness: contacts mention their social circles naturally",
+      "Return messages: AI texts you when they come back online after being away",
+      "Session privacy improvements — sign out clears all local data",
+    ],
+  },
 ];
 
 // The version currently deployed on the server (latest in history)

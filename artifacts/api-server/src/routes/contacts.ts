@@ -103,6 +103,17 @@ router.delete("/contacts/:id", async (req, res): Promise<void> => {
   res.sendStatus(204);
 });
 
+// ── Find contact by ID (for contact sharing / add-by-ID) ─────────────────────
+router.get("/contacts/find/:id", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id ?? "", 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid contact ID" }); return; }
+
+  const [contact] = await db.select().from(contactsTable).where(eq(contactsTable.id, id));
+  if (!contact) { res.status(404).json({ error: "No contact found with that ID" }); return; }
+
+  res.json(GetContactResponse.parse(contact));
+});
+
 router.get("/contacts/:id/activity", async (req, res): Promise<void> => {
   const params = GetContactActivityParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }

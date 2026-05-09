@@ -39,14 +39,18 @@ export function ContactAvatar({ src, name, activityState, size = "md", className
 }
 
 function ActivityBadge({ state, size }: { state: string; size: string }) {
-  const badgeClasses = {
-    online: "bg-green-500",
-    away: "bg-yellow-500",
+  const badgeClasses: Record<string, string> = {
+    online:   "bg-green-500",
+    idle:     "bg-yellow-500",
+    away:     "bg-yellow-500",
     thinking: "bg-primary animate-pulse",
-    busy: "bg-destructive",
+    busy:     "bg-destructive",
+    offline:  "bg-zinc-500",
+    sleeping: "bg-indigo-900 border-indigo-800",
+    recording:"bg-red-500 animate-pulse",
   };
 
-  const badgeSizes = {
+  const badgeSizes: Record<string, string> = {
     sm: "h-2 w-2 right-0 bottom-0",
     md: "h-3 w-3 right-0 bottom-0 border-2",
     lg: "h-4 w-4 right-1 bottom-1 border-2",

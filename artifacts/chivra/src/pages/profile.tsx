@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
 import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,12 +7,69 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   User, Bell, Lock, MessageCircle, Info, ChevronRight, Edit2, Check, Copy,
   CheckCheck, X, Shield, Eye, EyeOff, BellOff, BellRing, Palette, HardDrive,
-  UserX, Smartphone, ChevronLeft,
+  UserX, Smartphone, ChevronLeft, LogOut, AlertTriangle,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { getStoredVcn, getDisplayName, setDisplayName, getStatusText, setStatusText, formatVcn } from "@/lib/vcn";
 import { Switch } from "@/components/ui/switch";
+
+// ── Sign out section ──────────────────────────────────────────────────────────
+function SignOutSection() {
+  const [, setLocation] = useLocation();
+  const [confirming, setConfirming] = useState(false);
+  const { toast } = useToast();
+
+  const handleSignOut = () => {
+    // Clear all chivra_ localStorage keys
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith("chivra_")) keysToRemove.push(key);
+    }
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+    toast({ title: "Signed out", description: "Your session has been cleared." });
+    // Navigate to root (will show onboarding)
+    setTimeout(() => { setLocation("/"); window.location.reload(); }, 400);
+  };
+
+  if (confirming) {
+    return (
+      <div className="bg-destructive/5 border border-destructive/20 rounded-2xl p-4 space-y-3">
+        <div className="flex items-center gap-2.5 text-destructive">
+          <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+          <p className="text-sm font-medium">Sign out of Chivra?</p>
+        </div>
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          This will clear your local session and return you to onboarding. Your AI contacts and chat history remain in your account.
+        </p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" className="flex-1 rounded-xl" onClick={() => setConfirming(false)}>
+            Cancel
+          </Button>
+          <Button variant="destructive" size="sm" className="flex-1 rounded-xl" onClick={handleSignOut}>
+            Sign out
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setConfirming(true)}
+      className="w-full flex items-center gap-3 px-4 py-3.5 bg-card border border-border rounded-2xl hover:bg-muted/30 active:bg-muted/50 transition-colors text-left"
+    >
+      <div className="h-8 w-8 rounded-xl bg-destructive/10 flex items-center justify-center flex-shrink-0">
+        <LogOut className="h-4 w-4 text-destructive" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-destructive">Sign out</p>
+        <p className="text-xs text-muted-foreground">Clear session and return to onboarding</p>
+      </div>
+    </button>
+  );
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type ModalId =
@@ -468,6 +526,11 @@ export default function Profile() {
               </div>
             </motion.div>
           ))}
+
+          {/* Sign out */}
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
+            <SignOutSection />
+          </motion.div>
 
           <p className="text-center text-xs text-muted-foreground/30 pt-1">Chivra — Your AI Social World</p>
         </div>

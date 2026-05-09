@@ -24,12 +24,39 @@ import { format, isToday, isYesterday } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import CallOverlay, { type CallContact, type CallType } from "@/components/call-overlay";
+import { ContactShareCard } from "@/components/contact-share-card";
 
 function formatMsgTime(dateStr: string) {
   const d = new Date(dateStr);
   if (isToday(d))     return format(d, "h:mm a");
   if (isYesterday(d)) return "Yesterday " + format(d, "h:mm a");
   return format(d, "MMM d, h:mm a");
+}
+
+function formatLastSeen(state: string, lastSeenAt?: string | null): string {
+  if (state === "thinking")  return "typing...";
+  if (state === "recording") return "recording...";
+  if (state === "online")    return "online";
+  if (state === "idle")      return "idle";
+  if (state === "sleeping")  return "sleeping";
+  // offline
+  if (!lastSeenAt) return "last seen recently";
+  const diffMs  = Date.now() - new Date(lastSeenAt).getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 2)  return "last seen just now";
+  if (diffMin < 60) return `last seen ${diffMin}m ago`;
+  const diffH   = Math.floor(diffMin / 60);
+  if (diffH < 24)   return `last seen ${diffH}h ago`;
+  if (diffH < 48)   return "last seen yesterday";
+  return "last seen a while ago";
+}
+
+// Parse [[SHARE_CONTACT:id]] tokens from AI message content
+function parseContactShare(content: string): { text: string; sharedContactId: number | null } {
+  const match = content.match(/\[\[SHARE_CONTACT:(\d+)\]\]/);
+  if (!match) return { text: content, sharedContactId: null };
+  const text = content.replace(/\[\[SHARE_CONTACT:\d+\]\]/g, "").trim();
+  return { text, sharedContactId: parseInt(match[1]!, 10) };
 }
 
 // ── Waveform voice player ─────────────────────────────────────────────────────
@@ -436,9 +463,9 @@ export default function ChatScreen() {
     audioChunksRef.current = [];
   };
 
-  const activityLabel = activity?.activityState === "thinking"
-    ? "typing..."
-    : activity?.activityState || contact?.activityState || "online";
+  const currentState  = activity?.activityState || contact?.activityState || "online";
+  const activityLabel = formatLastSeen(currentState, activity?.lastSeenAt);
+  const isOfflineState = currentState === "offline" || currentState === "sleeping" || currentState === "idle";
 
   const callContact: CallContact | null = contact
     ? { id: contact.id, name: contact.name, avatarUrl: contact.avatarUrl }
@@ -483,7 +510,13 @@ export default function ChatScreen() {
                   <motion.p
                     key={activityLabel}
                     initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                    className={`text-[10px] capitalize ${activityLabel === "typing..." ? "text-primary font-medium" : "text-muted-foreground"}`}
+                    className={`text-[10px] ${
+                      activityLabel === "typing..."
+                        ? "text-primary font-medium"
+                        : isOfflineState
+                          ? "text-muted-foreground/60"
+                          : "text-muted-foreground"
+                    }`}
                   >
                     {activityLabel}
                   </motion.p>
@@ -542,7 +575,26 @@ export default function ChatScreen() {
                         </span>
                       )}
                       <SwipeableMessage onSwipeRight={() => setReplyTo({ sender: msg.sender, content: msg.content })}>
-                        <MessageBubble msg={msg} isSameGroup={isSameGroup} isLast={isLastUser} />
+                        {(() => {
+                          const isAi = msg.sender === "ai" && msg.messageType === "text";
+                          const parsed = isAi ? parseContactShare(msg.content) : null;
+                          const displayMsg = parsed && parsed.sharedContactId
+                            ? { ...msg, content: parsed.text }
+                            : msg;
+                          return (
+                            <div className={`flex flex-col ${isUser ? "items-end" : "items-start"}`}>
+                              {displayMsg.content && (
+                                <MessageBubble msg={displayMsg} isSameGroup={isSameGroup} isLast={isLastUser} />
+                              )}
+                              {parsed?.sharedContactId && (
+                                <ContactShareCard
+                                  contactId={parsed.sharedContactId}
+                                  referredBy={contact?.name}
+                                />
+                              )}
+                            </div>
+                          );
+                        })()}
                       </SwipeableMessage>
                     </motion.div>
                   );

@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startAutoSpawn, startProactiveFollowUps } from "./lib/autoSpawn";
+import { startPresenceScheduler } from "./lib/presenceScheduler";
 
 const rawPort = process.env["PORT"];
 
@@ -25,4 +26,5 @@ app.listen(port, (err) => {
   logger.info({ port }, "Server listening");
   startAutoSpawn();
   startProactiveFollowUps();
+  startPresenceScheduler();
 });

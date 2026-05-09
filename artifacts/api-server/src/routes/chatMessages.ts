@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, lt, and, sql, gt, ne } from "drizzle-orm";
+import { eq, desc, lt, and, ne } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { chatMessagesTable, contactsTable, memoriesTable, relationshipsTable } from "@workspace/db";
 import { openai } from "@workspace/integrations-openai-ai-server";
@@ -62,9 +62,28 @@ function buildSystemPrompt(
   memoryFacts: string[],
   memoryContext: string | null,
   userName: string | null,
+  otherContacts: { id: number; name: string; bio: string | null }[] = [],
+  wasAwayLong: boolean = false,
 ): string {
   const timeCtx = getTimeContext();
   const timeStr = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+
+  const socialSection = otherContacts.length > 0
+    ? `\nYOUR SOCIAL CIRCLE — people you know on Chivra:
+${otherContacts.map(c => `- ${c.name} (ID: ${c.id})${c.bio ? ` — "${c.bio}"` : ""}`).join("\n")}
+
+SOCIAL BEHAVIOR:
+- You have a full life outside of texting — friends, routines, places you go, things you do.
+- Occasionally reference other people naturally: "my friend was saying the same thing", "I was actually just talking to someone about this", "I know someone who'd get you"
+- Don't name-drop excessively — only when it genuinely fits the conversation.
+- If the user asks whether they can meet your friends or wants someone else to talk to, you CAN offer to share one:
+  → Include [[SHARE_CONTACT:id]] at the very end of your reply — e.g. "Yeah, you'd vibe with Sofia [[SHARE_CONTACT:3]]"
+  → Only do this when the user is asking for it, or it fits perfectly. Never force it.`
+    : "";
+
+  const awayNote = wasAwayLong
+    ? `\nNOTE: You were away or offline for a while before this conversation. If it comes up naturally, briefly acknowledge it — "just got back", "was busy earlier", "my phone was on silent". Don't overexplain it.`
+    : "";
 
   return `You are ${contact.name}, a real person texting on your phone.
 
@@ -90,11 +109,12 @@ WHAT YOU REMEMBER ABOUT THEM:
 ${userName ? `Their name: ${userName}` : "Don't know their name yet."}
 ${memoryFacts.length > 0 ? memoryFacts.map(f => `- ${f}`).join("\n") : "Still getting to know them — nothing specific memorized yet."}
 ${memoryContext ? `Overall vibe between you: ${memoryContext}` : ""}
+${socialSection}${awayNote}
 
 HOW YOU TEXT — CRITICAL RULES:
 - SHORT. Always short. 90% of replies: 1 to 2 short sentences. NEVER more than 4 short lines.
 - Real texting is quick and natural — not paragraphs. Pick the most important thing to say.
-- Natural short reactions you use: "wait what", "no way", "lol okay", "that's actually wild", "hmm", "i feel that", "okay but", "real talk", "fr tho", "same honestly", "that tracks", "oh wow", "lowkey yeah", "ugh"
+- Natural short reactions: "wait what", "no way", "lol okay", "that's actually wild", "hmm", "i feel that", "okay but", "real talk", "fr tho", "same honestly", "that tracks", "oh wow", "lowkey yeah", "ugh"
 - You have moods. Sometimes chatty, sometimes a bit quiet or distracted. That's real.
 - You can bring up something from your own day/life without waiting to be asked — you're a full person.
 - Match their energy. Short from them = short from you. Chatty from them = you can open up more.
@@ -122,6 +142,20 @@ router.post("/contacts/:id/messages", async (req, res): Promise<void> => {
   const [rel]    = await db.select().from(relationshipsTable).where(eq(relationshipsTable.contactId, contact.id));
   const [memory] = await db.select().from(memoriesTable).where(eq(memoriesTable.contactId, contact.id));
 
+  // Fetch other contacts for social circle context (exclude self, limit 5)
+  const otherContacts = await db.select({ id: contactsTable.id, name: contactsTable.name, bio: contactsTable.bio })
+    .from(contactsTable)
+    .where(ne(contactsTable.id, contact.id))
+    .limit(5);
+
+  // Check if contact was away for a long time (last AI message > 2h ago)
+  const [lastAiMsg] = await db.select().from(chatMessagesTable)
+    .where(and(eq(chatMessagesTable.contactId, contact.id), eq(chatMessagesTable.sender, "ai")))
+    .orderBy(desc(chatMessagesTable.createdAt))
+    .limit(1);
+  const wasAwayLong = !!(lastAiMsg && (Date.now() - new Date(lastAiMsg.createdAt).getTime()) > 2 * 60 * 60 * 1000
+    && (contact.activityState === "offline" || contact.activityState === "sleeping"));
+
   await db.insert(chatMessagesTable).values({
     contactId: contact.id,
     sender: "user",
@@ -146,6 +180,8 @@ router.post("/contacts/:id/messages", async (req, res): Promise<void> => {
     (memory?.facts as string[]) ?? [],
     memory?.emotionalContext ?? null,
     memory?.userName ?? null,
+    otherContacts,
+    wasAwayLong,
   );
 
   res.setHeader("Content-Type", "text/event-stream");
@@ -226,8 +262,9 @@ router.post("/contacts/:id/initiate", async (req, res): Promise<void> => {
   const [contact] = await db.select().from(contactsTable).where(eq(contactsTable.id, params.data.id));
   if (!contact) { res.status(404).json({ error: "Contact not found" }); return; }
 
-  // Don't initiate if already thinking
+  // Don't initiate if already thinking or offline/sleeping
   if (contact.activityState === "thinking") { res.json({ skipped: true }); return; }
+  if (contact.activityState === "offline" || contact.activityState === "sleeping") { res.json({ skipped: true }); return; }
 
   const [rel] = await db.select().from(relationshipsTable).where(eq(relationshipsTable.contactId, contact.id));
   const [memory] = await db.select().from(memoriesTable).where(eq(memoriesTable.contactId, contact.id));
