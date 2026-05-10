@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   User, Bell, Lock, MessageCircle, Info, ChevronRight, Edit2, Check, Copy,
   CheckCheck, X, Shield, Eye, EyeOff, BellOff, BellRing, Palette, HardDrive,
-  UserX, Smartphone, ChevronLeft, LogOut, AlertTriangle,
+  UserX, Smartphone, ChevronLeft, LogOut, AlertTriangle, Loader2,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
@@ -207,6 +207,39 @@ function ChatSettingsModal({ onClose }: { onClose: () => void }) {
 
 // ── Linked devices modal ──────────────────────────────────────────────────────
 function LinkedDevicesModal({ onClose }: { onClose: () => void }) {
+  const { toast } = useToast();
+  const [linkCode, setLinkCode] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const vcn = getStoredVcn();
+
+  const generateCode = async () => {
+    if (!vcn) return;
+    setGenerating(true);
+    try {
+      const res = await fetch("/api/users/generate-link-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vcn }),
+      });
+      const data = await res.json();
+      if (data.code) setLinkCode(data.code);
+    } catch {
+      toast({ title: "Failed to generate code", variant: "destructive" });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const copyCode = () => {
+    if (!linkCode) return;
+    navigator.clipboard.writeText(linkCode).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      toast({ title: "Code copied to clipboard" });
+    });
+  };
+
   return (
     <SettingsModal title="Linked Devices" onClose={onClose}>
       <div className="bg-card border border-border rounded-2xl p-5 text-center space-y-2">
@@ -218,9 +251,50 @@ function LinkedDevicesModal({ onClose }: { onClose: () => void }) {
           Active now
         </div>
       </div>
-      <p className="text-xs text-muted-foreground text-center">
-        You can link Chivra on multiple devices. Additional device linking coming soon.
-      </p>
+
+      <div className="space-y-3 mt-2">
+        <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium px-1">Link Another Device</p>
+        <div className="bg-card border border-border rounded-2xl p-4 space-y-3">
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            Generate a one-time code and enter it on your other device during sign-in to restore your account instantly.
+          </p>
+          {linkCode ? (
+            <div className="space-y-3">
+              <div className="bg-muted/60 rounded-xl p-4 text-center">
+                <p className="text-2xl font-black tracking-widest text-foreground font-mono">{linkCode}</p>
+                <p className="text-xs text-muted-foreground mt-1.5">Expires in 10 minutes</p>
+              </div>
+              <Button
+                variant="outline"
+                className="w-full rounded-xl"
+                onClick={copyCode}
+              >
+                {copied ? <Check className="h-4 w-4 mr-2 text-emerald-400" /> : <Copy className="h-4 w-4 mr-2" />}
+                {copied ? "Copied" : "Copy Code"}
+              </Button>
+              <Button
+                variant="ghost"
+                className="w-full rounded-xl text-muted-foreground"
+                onClick={() => setLinkCode(null)}
+              >
+                Generate New Code
+              </Button>
+            </div>
+          ) : (
+            <Button
+              className="w-full rounded-xl"
+              onClick={generateCode}
+              disabled={generating}
+            >
+              {generating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Smartphone className="h-4 w-4 mr-2" />}
+              {generating ? "Generating..." : "Generate Link Code"}
+            </Button>
+          )}
+        </div>
+        <p className="text-[11px] text-muted-foreground/60 text-center px-2">
+          Your phone number also restores your account on any new device automatically.
+        </p>
+      </div>
     </SettingsModal>
   );
 }

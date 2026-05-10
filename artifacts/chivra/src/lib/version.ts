@@ -1,9 +1,6 @@
 // ── Client version ────────────────────────────────────────────────────────────
-// This must match the highest version_code the user has been shipped as a
-// built client. Applied version (from localStorage) takes over after an
-// in-session update so the screen never re-triggers for the same release.
-const CLIENT_VERSION = "3.2.0";
-const CLIENT_VERSION_CODE = 7;
+const CLIENT_VERSION = "3.3.0";
+const CLIENT_VERSION_CODE = 8;
 
 // ── Storage keys ─────────────────────────────────────────────────────────────
 const DISMISSED_KEY = "chivra_update_dismissed_v"; // + version string suffix

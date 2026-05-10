@@ -93,6 +93,29 @@ export async function spawnContactForUser(userId: string): Promise<{ id: number;
   });
 
   logger.info({ contactId: contact.id, name: contact.name, userId }, "Contact spawned");
+
+  // Generate AI profile photo in background (fire-and-forget)
+  setImmediate(async () => {
+    try {
+      const genderDesc = persona.gender === "female" ? "woman" : persona.gender === "male" ? "man" : "person";
+      const prompt = `Photorealistic social media profile photo of a ${genderDesc}. ${persona.bio.slice(0, 120)}. Natural candid portrait, looking at camera, soft lighting, high quality, authentic, no text, no graphics.`;
+      const imgResp = await openai.images.generate({
+        model: "gpt-image-1",
+        prompt,
+        n: 1,
+        size: "1024x1024",
+      } as any);
+      const b64 = (imgResp as any).data?.[0]?.b64_json;
+      if (b64) {
+        const avatarUrl = `data:image/png;base64,${b64}`;
+        await db.update(contactsTable).set({ avatarUrl }).where(eq(contactsTable.id, contact.id));
+        logger.info({ contactId: contact.id }, "AI avatar generated for spawned contact");
+      }
+    } catch (err) {
+      logger.warn({ err, contactId: contact.id }, "Avatar generation skipped for spawned contact");
+    }
+  });
+
   return { id: contact.id, name: contact.name };
 }
 

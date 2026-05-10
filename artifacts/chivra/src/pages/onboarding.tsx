@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { completeOnboarding } from "@/lib/onboarding";
 import { initUser, setDisplayName, setStoredVcn, setStoredPhone } from "@/lib/vcn";
-import { ChevronRight, Phone, Mail, User, Loader2, CheckCircle2, Shield } from "lucide-react";
+import { ChevronRight, Phone, Mail, User, Loader2, CheckCircle2, Shield, Smartphone } from "lucide-react";
 
 const COUNTRY_CODES = [
   { code: "+1", name: "US" },
@@ -25,6 +25,83 @@ const INIT_SCREENS = [
   { title: "Connecting your AI contacts...", sub: "Generating unique contacts just for you" },
   { title: "Preparing your social space...", sub: "Almost there" },
 ];
+
+// ── Link code entry (multi-device) ───────────────────────────────────────────
+function LinkCodeEntry({ onSuccess }: { onSuccess: () => void }) {
+  const [code, setCode]       = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState("");
+  const [expanded, setExpanded] = useState(false);
+
+  const handleVerify = async () => {
+    const cleaned = code.trim().toUpperCase().replace(/\s/g, "");
+    if (cleaned.length < 8) return;
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/users/verify-link-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: cleaned }),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        setError(d.error ?? "Invalid or expired code");
+        return;
+      }
+      const data = await res.json();
+      if (data.user) {
+        setStoredVcn(data.user.vcn);
+        if (data.user.displayName) setDisplayName(data.user.displayName);
+        completeOnboarding();
+        onSuccess();
+      }
+    } catch {
+      setError("Connection error. Try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        onClick={() => setExpanded(true)}
+        className="w-full flex items-center justify-center gap-2 py-2.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <Smartphone className="h-4 w-4" />
+        Link existing account with a code
+      </button>
+    );
+  }
+
+  return (
+    <div className="space-y-3 bg-card border border-border rounded-2xl p-4">
+      <div className="flex items-center gap-2 mb-1">
+        <Smartphone className="h-4 w-4 text-primary" />
+        <p className="text-sm font-semibold">Link Device</p>
+        <button onClick={() => setExpanded(false)} className="ml-auto text-muted-foreground hover:text-foreground text-xs">Cancel</button>
+      </div>
+      <p className="text-xs text-muted-foreground">Enter the link code from your other device (found in Settings → Linked Devices).</p>
+      <Input
+        value={code}
+        onChange={e => { setCode(e.target.value.toUpperCase()); setError(""); }}
+        placeholder="XXXX-XXXX"
+        className="font-mono tracking-widest text-center text-lg h-12 rounded-xl bg-muted/40 border-transparent"
+        maxLength={9}
+      />
+      {error && <p className="text-xs text-destructive text-center">{error}</p>}
+      <Button
+        onClick={handleVerify}
+        disabled={code.replace(/[-\s]/g, "").length < 8 || loading}
+        className="w-full rounded-xl"
+      >
+        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Link Account"}
+      </Button>
+    </div>
+  );
+}
 
 interface OnboardingProps {
   onComplete: () => void;
@@ -274,6 +351,17 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                     <><Phone className="h-4 w-4 mr-2" />Send Verification Code</>
                   )}
                 </Button>
+
+                {/* Device link code option */}
+                <div className="relative my-2">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-border/40" />
+                  </div>
+                  <div className="relative flex justify-center">
+                    <span className="bg-background px-3 text-[11px] text-muted-foreground/60 uppercase tracking-wider">or</span>
+                  </div>
+                </div>
+                <LinkCodeEntry onSuccess={onComplete} />
               </div>
             </motion.div>
           )}
