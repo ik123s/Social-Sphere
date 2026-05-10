@@ -2,22 +2,13 @@ import { Router, type IRouter } from "express";
 
 const router: IRouter = Router();
 
-// ── Version Registry ──────────────────────────────────────────────────────────
-// To release a new update, add an entry to VERSION_HISTORY and bump CURRENT.
-// update_type rules:
-//   patch  → 1-2 small fixes / text changes
-//   minor  → 3-4 moderate changes or small feature additions
-//   major  → 5+ changes, structural redesign, or breaking new features
-// force_update: major versions always force; patch/minor allow deferral.
-// delay_limit_days: how many days before "Later" expires (major = 3 = instant force).
-
 export interface VersionEntry {
-  version: string;           // semver label  e.g. "2.0.0"
-  version_code: number;      // monotonically increasing integer
+  version: string;
+  version_code: number;
   update_type: "patch" | "minor" | "major";
-  released_at: string;       // ISO date string
-  force_update: boolean;     // blocks app until installed
-  delay_limit_days: number;  // 3 = force immediately
+  released_at: string;
+  force_update: boolean;
+  delay_limit_days: number;
   update_description: string;
   changes: string[];
 }
@@ -123,15 +114,30 @@ const VERSION_HISTORY: VersionEntry[] = [
       "Session privacy improvements — sign out clears all local data",
     ],
   },
+  {
+    version: "3.2.0",
+    version_code: 7,
+    update_type: "major",
+    released_at: "2026-05-10T00:00:00Z",
+    force_update: true,
+    delay_limit_days: 0,
+    update_description: "Private accounts — your world, only yours",
+    changes: [
+      "Full account isolation: every user gets their own private AI ecosystem",
+      "Your contacts, chats, and statuses are 100% private — no sharing between accounts",
+      "Phone number becomes your account — log back in from any device",
+      "Returning users automatically restore their full account on re-login",
+      "Each new account gets a unique set of AI contacts with fresh personalities",
+      "New AI contacts introduced every 3 hours — your social world keeps growing",
+      "User agreement and platform rules shown during onboarding",
+      "App review prompts after positive usage milestones",
+    ],
+  },
 ];
 
-// The version currently deployed on the server (latest in history)
 const LATEST = VERSION_HISTORY[VERSION_HISTORY.length - 1]!;
-
-// Minimum supported version_code — clients below this are force-blocked
 const MINIMUM_SUPPORTED_VERSION_CODE = 1;
 
-// GET /api/version
 router.get("/version", (_req, res): void => {
   res.json({
     latest_version: LATEST.version,
@@ -146,7 +152,6 @@ router.get("/version", (_req, res): void => {
   });
 });
 
-// GET /api/version/history — full changelog
 router.get("/version/history", (_req, res): void => {
   res.json([...VERSION_HISTORY].reverse());
 });

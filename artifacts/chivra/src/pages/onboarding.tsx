@@ -4,8 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { completeOnboarding } from "@/lib/onboarding";
-import { initUser, setDisplayName } from "@/lib/vcn";
-import { ChevronRight, Phone, Mail, User, Loader2, CheckCircle2 } from "lucide-react";
+import { initUser, setDisplayName, setStoredVcn, setStoredPhone } from "@/lib/vcn";
+import { ChevronRight, Phone, Mail, User, Loader2, CheckCircle2, Shield } from "lucide-react";
 
 const COUNTRY_CODES = [
   { code: "+1", name: "US" },
@@ -21,8 +21,8 @@ const COUNTRY_CODES = [
 ];
 
 const INIT_SCREENS = [
-  { title: "Initializing account...", sub: "Setting up your secure identity" },
-  { title: "Connecting your AI contacts...", sub: "Your social world is waking up" },
+  { title: "Initializing your account...", sub: "Setting up your secure private space" },
+  { title: "Connecting your AI contacts...", sub: "Generating unique contacts just for you" },
   { title: "Preparing your social space...", sub: "Almost there" },
 ];
 
@@ -31,13 +31,14 @@ interface OnboardingProps {
 }
 
 export default function Onboarding({ onComplete }: OnboardingProps) {
-  const [stage, setStage] = useState<"phone" | "otp" | "email" | "profile" | "init">("phone");
+  const [stage, setStage] = useState<"phone" | "terms" | "otp" | "email" | "profile" | "init">("phone");
 
   // Phone stage
   const [countryCode, setCountryCode] = useState("+1");
   const [phone, setPhone] = useState("");
   const [sendingOtp, setSendingOtp] = useState(false);
   const [demoOtp, setDemoOtp] = useState("");
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   // OTP stage
   const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
@@ -56,21 +57,23 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
   const [initScreen, setInitScreen] = useState(0);
   const [initDone, setInitDone] = useState(false);
 
-  // --- Phone ---
+  // Full phone (with country code) for account linking
+  const fullPhone = countryCode + phone;
+
+  // --- Phone → Terms ---
   const handleSendOtp = async () => {
-    if (phone.length < 6) return;
+    if (phone.length < 6 || !termsAccepted) return;
     setSendingOtp(true);
     try {
       const res = await fetch("/api/users/request-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: countryCode + phone }),
+        body: JSON.stringify({ phone: fullPhone }),
       });
       const data = await res.json();
       setDemoOtp(data.otp ?? "");
       setStage("otp");
     } catch {
-      /* proceed anyway */
       setDemoOtp("000000");
       setStage("otp");
     } finally {
@@ -103,7 +106,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       const res = await fetch("/api/users/verify-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: countryCode + phone, otp: code }),
+        body: JSON.stringify({ phone: fullPhone, otp: code }),
       });
       if (!res.ok) {
         setOtpError("Incorrect code. Try again.");
@@ -111,9 +114,22 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         otpRefs.current[0]?.focus();
         return;
       }
+      const data = await res.json();
+
+      // Returning user — restore their account and go straight to app
+      if (data.isReturningUser && data.user) {
+        setStoredVcn(data.user.vcn);
+        setStoredPhone(fullPhone);
+        if (data.user.displayName) setDisplayName(data.user.displayName);
+        completeOnboarding();
+        onComplete();
+        return;
+      }
+
+      // New user — continue with email/profile setup
       setStage("email");
     } catch {
-      setStage("email"); // allow through in case backend isn't available
+      setStage("email");
     } finally {
       setVerifying(false);
     }
@@ -137,6 +153,16 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       }
     };
     setTimeout(tick, 1600);
+
+    // Kick off starter contact generation in background (non-blocking)
+    const vcn = localStorage.getItem("chivra_vcn");
+    if (vcn) {
+      fetch("/api/users/initialize-contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-User-Id": vcn },
+        body: JSON.stringify({}),
+      }).catch(() => {});
+    }
   }, [stage]);
 
   const handleProfileDone = async () => {
@@ -144,7 +170,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     setProfileLoading(true);
     setDisplayName(name.trim());
     try {
-      await initUser();
+      await initUser(fullPhone);
     } catch { /* non-blocking */ }
     setProfileLoading(false);
     setStage("init");
@@ -182,7 +208,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
             >
               <div className="mb-8">
                 <h2 className="text-2xl font-bold mb-1">Enter your number</h2>
-                <p className="text-muted-foreground text-sm">We'll send a verification code to confirm it's you.</p>
+                <p className="text-muted-foreground text-sm">Your phone number is your account — you can log in from any device.</p>
               </div>
 
               <div className="space-y-4">
@@ -207,19 +233,94 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                   />
                 </div>
 
+                {/* Terms checkbox */}
+                <label className="flex items-start gap-3 cursor-pointer group">
+                  <div className="relative mt-0.5 flex-shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={termsAccepted}
+                      onChange={e => setTermsAccepted(e.target.checked)}
+                      className="sr-only"
+                    />
+                    <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${
+                      termsAccepted ? "bg-primary border-primary" : "border-border bg-card"
+                    }`}>
+                      {termsAccepted && (
+                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </div>
+                  </div>
+                  <span className="text-xs text-muted-foreground leading-relaxed">
+                    I agree to Chivra's{" "}
+                    <button
+                      type="button"
+                      onClick={() => setStage("terms")}
+                      className="text-primary underline underline-offset-2"
+                    >
+                      Terms of Service and Platform Rules
+                    </button>
+                    . I will not use this platform to harass, abuse, or harm others.
+                  </span>
+                </label>
+
                 <Button
                   onClick={handleSendOtp}
-                  disabled={phone.length < 6 || sendingOtp}
+                  disabled={phone.length < 6 || sendingOtp || !termsAccepted}
                   className="w-full h-13 rounded-2xl text-base font-semibold mt-2"
                 >
                   {sendingOtp ? <Loader2 className="h-5 w-5 animate-spin" /> : (
                     <><Phone className="h-4 w-4 mr-2" />Send Verification Code</>
                   )}
                 </Button>
+              </div>
+            </motion.div>
+          )}
 
-                <p className="text-[11px] text-muted-foreground text-center pt-2 leading-relaxed">
-                  By continuing you agree to Chivra's Terms of Service and Privacy Policy
-                </p>
+          {/* STAGE: TERMS */}
+          {stage === "terms" && (
+            <motion.div key="terms" variants={slideVariants} initial="initial" animate="animate" exit="exit"
+              transition={{ type: "spring", stiffness: 380, damping: 30 }}
+              className="absolute inset-0 flex flex-col px-6 pt-2"
+            >
+              <div className="mb-6">
+                <div className="flex items-center gap-2 mb-2">
+                  <Shield className="h-5 w-5 text-primary" />
+                  <h2 className="text-2xl font-bold">Platform Rules</h2>
+                </div>
+                <p className="text-muted-foreground text-sm">By using Chivra you agree to the following.</p>
+              </div>
+
+              <div className="flex-1 overflow-y-auto space-y-4 pb-6">
+                {[
+                  { title: "Respectful use only", body: "Treat this platform and its features with care. Chivra is a safe social space — not a place for hateful, abusive, or threatening behavior." },
+                  { title: "No harassment or abuse", body: "You may not use Chivra to harass, intimidate, bully, or harm any person — AI or human — in any way." },
+                  { title: "No illegal activity", body: "You may not use Chivra for any purpose that is illegal in your jurisdiction, including but not limited to fraud, exploitation, or distribution of prohibited content." },
+                  { title: "No spam or misuse", body: "Automated abuse, spamming, or exploiting platform mechanics is strictly prohibited." },
+                  { title: "Account consequences", body: "Violations may result in a warning, temporary suspension, or permanent ban from the platform at our discretion." },
+                  { title: "Your data is private", body: "Your chats, contacts, and account data are private to you. We do not sell your personal data or share it without your consent." },
+                ].map((rule, i) => (
+                  <div key={i} className="bg-card border border-border rounded-xl p-4">
+                    <p className="text-sm font-semibold text-foreground mb-1">{rule.title}</p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">{rule.body}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex-shrink-0 pt-4 pb-2 space-y-3">
+                <Button
+                  onClick={() => { setTermsAccepted(true); setStage("phone"); }}
+                  className="w-full h-13 rounded-2xl text-base font-semibold"
+                >
+                  I agree to these rules
+                </Button>
+                <button
+                  onClick={() => setStage("phone")}
+                  className="w-full text-sm text-muted-foreground text-center hover:text-foreground transition-colors"
+                >
+                  Go back
+                </button>
               </div>
             </motion.div>
           )}
@@ -333,7 +434,6 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
               </div>
 
               <div className="space-y-5">
-                {/* Avatar placeholder */}
                 <div className="flex justify-center">
                   <div className="w-24 h-24 rounded-full bg-primary/10 border-2 border-dashed border-primary/40 flex items-center justify-center">
                     <User className="h-10 w-10 text-primary/40" />
@@ -401,7 +501,6 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
                     </p>
                   </div>
 
-                  {/* Progress dots */}
                   {!initDone && (
                     <div className="flex gap-1.5">
                       {INIT_SCREENS.map((_, i) => (

@@ -2,8 +2,8 @@
 // This must match the highest version_code the user has been shipped as a
 // built client. Applied version (from localStorage) takes over after an
 // in-session update so the screen never re-triggers for the same release.
-const CLIENT_VERSION = "3.1.0";
-const CLIENT_VERSION_CODE = 6;
+const CLIENT_VERSION = "3.2.0";
+const CLIENT_VERSION_CODE = 7;
 
 // ── Storage keys ─────────────────────────────────────────────────────────────
 const DISMISSED_KEY = "chivra_update_dismissed_v"; // + version string suffix
@@ -44,9 +44,6 @@ export function getClientVersion() {
 }
 
 // ── Applied version tracking ──────────────────────────────────────────────────
-// After the user completes an update, we store the applied version_code in
-// localStorage so resolveUpdateState treats them as already up to date —
-// even though the JS bundle version_code hasn't changed.
 export function getAppliedVersionCode(): number {
   const raw = localStorage.getItem(APPLIED_KEY);
   if (!raw) return 0;
@@ -82,32 +79,24 @@ export function clearDismissed(version: string) {
 // ── Decision logic ────────────────────────────────────────────────────────────
 export function resolveUpdateState(info: VersionResponse): UpdateState | null {
   const client = getClientVersion();
-  // The effective version is the highest of the compiled bundle OR what the
-  // user has already applied in this browser via an in-session update.
   const effectiveCode = Math.max(client.version_code, getAppliedVersionCode());
 
-  // Already on latest (or applied it this session) — no update needed
   if (info.latest_version_code <= effectiveCode) return null;
 
-  // Below minimum supported — force block regardless of type
   if (effectiveCode < info.minimum_supported_version_code) {
     return { available: true, forced: true, info };
   }
 
-  // Major version OR server explicitly flags force_update → always force
   if (info.update_type === "major" || info.force_update) {
     return { available: true, forced: true, info };
   }
 
-  // Grace period expired → escalate to forced
   const days = getDaysSinceDismissed(info.latest_version);
   if (days !== null && days >= info.delay_limit_days) {
     return { available: true, forced: true, info };
   }
 
-  // Within active grace period — skip silently
   if (days !== null && days < info.delay_limit_days) return null;
 
-  // First time seeing this update — prompt (deferrable)
   return { available: true, forced: false, info };
 }

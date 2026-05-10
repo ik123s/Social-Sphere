@@ -26,44 +26,51 @@ A WhatsApp-style AI social network where each contact is an autonomous AI agent 
 ## Where things live
 
 - `lib/api-spec/openapi.yaml` — single source of truth for all API contracts
-- `lib/db/src/schema/` — Drizzle DB schema: contacts, relationships, memories, chatMessages, statusPosts, conversations, messages, users, userConnections
+- `lib/db/src/schema/` — Drizzle DB schema: contacts (userId), users (phone), relationships, memories, chatMessages, statusPosts, conversations, messages, userConnections
 - `lib/api-client-react/src/generated/` — generated React Query hooks (do not edit)
 - `lib/api-zod/src/generated/` — generated Zod schemas (do not edit)
 - `artifacts/api-server/src/routes/` — Express route handlers (contacts, relationships, chatMessages, memory, status, dashboard, openai, users, version)
-- `artifacts/api-server/src/lib/autoSpawn.ts` — AI auto-spawn (30–60 min) + proactive follow-ups (20–45 min)
+- `artifacts/api-server/src/lib/autoSpawn.ts` — AI auto-spawn (3h interval, per-user) + proactive follow-ups (20–45 min) + `spawnContactForUser()` export
 - `artifacts/api-server/src/lib/presenceScheduler.ts` — realistic online/offline/sleeping presence system (8–18 min ticks)
 - `artifacts/chivra/src/pages/` — frontend pages (onboarding, splash, chat-list, chat-screen, contact-profile, status-feed, new-contact, profile)
 - `artifacts/chivra/src/components/contact-share-card.tsx` — renders shared AI contact cards in chat bubbles
 - `artifacts/chivra/src/components/contact-avatar.tsx` — avatar with presence badge (online/idle/offline/sleeping/thinking)
 - `artifacts/chivra/src/components/call-overlay.tsx` — voice/video call simulation component
+- `artifacts/chivra/src/components/review-prompt.tsx` — review/rating prompt shown after 5 min of use
 - `artifacts/chivra/src/lib/onboarding.ts` — onboarding completion flag helpers (localStorage)
-- `artifacts/chivra/src/lib/vcn.ts` — VCN init/storage helpers
-- `artifacts/chivra/src/lib/version.ts` — client version code (currently 6 / v3.1.0)
+- `artifacts/chivra/src/lib/vcn.ts` — VCN init/storage helpers + phone storage + account created timestamp
+- `artifacts/chivra/src/lib/version.ts` — client version code (currently 7 / v3.2.0)
+- `artifacts/chivra/src/main.tsx` — global fetch interceptor: injects X-User-Id (VCN) into all /api/ requests
 
 ## Architecture decisions
 
+- **User isolation**: All contacts are scoped to a userId (VCN). No contact is visible to another user. userId is passed as `X-User-Id` request header, injected automatically by a global fetch interceptor in main.tsx.
+- **Phone = account**: `users.phone` (unique) links a phone number to a VCN. `verify-otp` checks for existing phone and returns `{ isReturningUser, user }`. Returning users skip onboarding and go straight to their account.
+- **Starter contacts**: After new user completes profile, `POST /api/users/initialize-contacts` spawns 3 unique AI personas for their ecosystem (background, non-blocking).
+- **Auto-spawn**: Runs every 3 hours. Picks a random user from users table, spawns one new AI contact for that user (with userId).
+- **Social circle isolation**: Chat system prompt only injects contacts from the same user's ecosystem (`WHERE user_id = $userId`), so `[[SHARE_CONTACT:id]]` tokens always reference valid contacts for that user.
 - Each AI contact has an independent personality prompt built from: name, gender, tone, language style, emotional behavior, relationship state, memory facts, and social circle (other contacts).
 - Chat messages are sent via raw fetch SSE streaming to `/api/contacts/:id/messages` — NOT via generated hooks (SSE requires manual fetch).
 - Memory extraction runs as a background fire-and-forget call after each AI response (gpt-5-nano), keeping the main chat stream fast.
 - Contact `activityState` is set to "thinking" during AI generation and restored to "online" after.
 - **Presence scheduler** runs every 8–18 min and transitions contacts between online/idle/offline/sleeping states using time-of-day weights and personality-based biases. Contacts that come back online after being away may send a return message.
-- **Social circle injection**: Each AI's system prompt includes a list of other AI contacts so it can mention them naturally and share their IDs using `[[SHARE_CONTACT:id]]` tokens.
 - **Contact sharing**: AI embeds `[[SHARE_CONTACT:id]]` in messages; chat-screen.tsx parses this token and renders a ContactShareCard below the bubble.
-- **Add by ID**: `GET /api/contacts/find/:id` returns a contact preview; new-contact.tsx has a "Find by ID" tab for this flow.
+- **Add by ID**: `GET /api/contacts/find/:id` returns a contact preview within the user's own ecosystem; new-contact.tsx has a "Find by ID" tab.
 - OTP verification is simulated server-side (in-memory Map, no real SMS) — the OTP is returned in the API response for demo purposes.
 - Voice notes use browser MediaRecorder API → base64 data URL → stored in chatMessages.content with messageType "audio".
 - Image sharing uses FileReader → base64 data URL → stored in chatMessages.content with messageType "image".
 - Status posts are filtered to last 24 hours on the backend using a `gte(createdAt, since24h())` clause.
 - **Sign out** clears all `chivra_*` localStorage keys and reloads the app to onboarding.
+- **Review prompt**: Shows after 5 minutes of account age, stored dismissal in `chivra_review_dismissed`.
 
 ## Product
 
-- **Onboarding flow**: 5-stage WhatsApp-style (phone + country code → OTP verification → email setup → profile setup → animated initialization screens)
+- **Onboarding flow**: Phone + country code → terms agreement (with full rules screen) → OTP verification (returning users auto-restored) → email setup → profile setup → animated initialization (creates 3 starter AI contacts)
 - Chat list (WhatsApp-style) with unread badges, last message preview, status bubbles row, and activity state indicators
 - Full chat screen with real-time streaming AI responses, typing indicator, swipe-to-reply, voice notes, image sharing, and voice/video call UI
 - **Presence**: AI contacts show online/idle/offline/sleeping states with "last seen X ago" timestamps
 - **Contact sharing in chat**: AI can share another contact's card inline — tap to start chatting
-- **Add contact by ID**: Find any AI contact by their numeric ID, preview, and start chatting
+- **Add contact by ID**: Find any contact from your ecosystem by numeric ID
 - Relationship progression: STRANGER → FRIEND → BEST FRIEND → PARTNER
 - AI memory: each contact remembers facts about the user across conversations
 - Status feed: AI contacts post thoughts and updates visible in a social feed (24h expiry)
@@ -72,7 +79,8 @@ A WhatsApp-style AI social network where each contact is an autonomous AI agent 
 - AI-generated avatar images via OpenAI image generation
 - VCN (Virtual Chat Number) system for user discovery — each user gets a unique 7-char ID
 - Profile page with 8 working settings modals + Sign Out button
-- Version system: v3.1.0 (version_code 6) with full update history and changelog
+- Version system: v3.2.0 (version_code 7) with full update history and changelog
+- Review prompt: soft rating nudge after 5+ minutes of use
 
 ## User preferences
 
@@ -92,6 +100,9 @@ A WhatsApp-style AI social network where each contact is an autonomous AI agent 
 - Presence scheduler skips contacts in "thinking" state to avoid interfering with active AI generation
 - `[[SHARE_CONTACT:id]]` token is stripped from the displayed message text; only the ContactShareCard is shown
 - Contact sharing: proactive initiate endpoint skips offline/sleeping contacts
+- All contacts require a `userId` (VCN) — contacts without userId are orphaned and invisible
+- DB migration: `user_id` column added to contacts, `phone` column added to users (unique partial index on non-null phones)
+- Auto-spawn now runs every 3 hours (was 30–60 min) and creates one contact for a random user per cycle
 
 ## Pointers
 

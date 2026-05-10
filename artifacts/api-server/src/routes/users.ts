@@ -3,6 +3,7 @@ import { eq, or } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { usersTable, userConnectionsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
+import { spawnContactForUser } from "../lib/autoSpawn";
 
 const router: IRouter = Router();
 
@@ -25,32 +26,46 @@ async function uniqueVcn(): Promise<string> {
 }
 
 // POST /api/users/register
-// Body: { displayName?, avatarUrl?, statusText? }
-// Returns existing user if vcn provided in body, else creates new one
 router.post("/users/register", async (req, res): Promise<void> => {
-  const { vcn: existingVcn, displayName, avatarUrl, statusText } = req.body;
+  const { vcn: existingVcn, displayName, avatarUrl, statusText, phone } = req.body;
 
+  // Check by VCN first (same device re-init)
   if (existingVcn) {
     const [user] = await db.select().from(usersTable).where(eq(usersTable.vcn, existingVcn));
+    if (user) {
+      // Update phone if now provided and not yet linked
+      if (phone && !user.phone) {
+        await db.update(usersTable).set({ phone }).where(eq(usersTable.vcn, existingVcn));
+      }
+      res.json({ ...user, phone: user.phone ?? phone ?? null });
+      return;
+    }
+  }
+
+  // Check by phone (returning user on new device)
+  if (phone) {
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.phone, phone));
     if (user) {
       res.json(user);
       return;
     }
   }
 
+  // New user
   const vcn = await uniqueVcn();
   const [newUser] = await db.insert(usersTable).values({
     vcn,
     displayName: displayName || "User",
     avatarUrl: avatarUrl || null,
     statusText: statusText || "Available",
+    phone: phone || null,
   }).returning();
 
   logger.info({ vcn: newUser!.vcn }, "New user registered");
   res.json(newUser);
 });
 
-// GET /api/users/vcn/:vcn — find a user by VCN (for search/add flow)
+// GET /api/users/vcn/:vcn — find a user by VCN
 router.get("/users/vcn/:vcn", async (req, res): Promise<void> => {
   const { vcn } = req.params;
   if (!vcn) { res.status(400).json({ error: "VCN required" }); return; }
@@ -67,8 +82,7 @@ router.get("/users/vcn/:vcn", async (req, res): Promise<void> => {
   res.json(user);
 });
 
-// POST /api/users/connect — connect two users by VCN
-// Body: { myVcn, targetVcn }
+// POST /api/users/connect
 router.post("/users/connect", async (req, res): Promise<void> => {
   const { myVcn, targetVcn } = req.body;
   if (!myVcn || !targetVcn) { res.status(400).json({ error: "Both VCNs required" }); return; }
@@ -80,15 +94,15 @@ router.post("/users/connect", async (req, res): Promise<void> => {
   if (!me) { res.status(404).json({ error: "Your VCN was not found" }); return; }
   if (!them) { res.status(404).json({ error: "Target VCN not found" }); return; }
 
-  const [conn] = await db.insert(userConnectionsTable).values({
+  await db.insert(userConnectionsTable).values({
     initiatorVcn: myVcn,
     targetVcn,
-  }).onConflictDoNothing().returning();
+  }).onConflictDoNothing();
 
   res.json({ connected: true, user: { vcn: them.vcn, displayName: them.displayName, avatarUrl: them.avatarUrl, statusText: them.statusText } });
 });
 
-// GET /api/users/:vcn/connections — list all connections for a user
+// GET /api/users/:vcn/connections
 router.get("/users/:vcn/connections", async (req, res): Promise<void> => {
   const { vcn } = req.params;
   const connections = await db.select().from(userConnectionsTable).where(
@@ -108,7 +122,7 @@ router.get("/users/:vcn/connections", async (req, res): Promise<void> => {
   res.json(users.flat());
 });
 
-// PATCH /api/users/:vcn — update profile
+// PATCH /api/users/:vcn
 router.patch("/users/:vcn", async (req, res): Promise<void> => {
   const { vcn } = req.params;
   const { displayName, statusText, avatarUrl } = req.body;
@@ -123,7 +137,7 @@ router.patch("/users/:vcn", async (req, res): Promise<void> => {
   res.json(updated);
 });
 
-// In-memory OTP store (phone → { otp, expiresAt })
+// ── OTP store ─────────────────────────────────────────────────────────────────
 const otpStore = new Map<string, { otp: string; expiresAt: number }>();
 
 function generateOtp(): string {
@@ -137,11 +151,11 @@ router.post("/users/request-otp", async (req, res): Promise<void> => {
   const otp = generateOtp();
   otpStore.set(phone, { otp, expiresAt: Date.now() + 10 * 60 * 1000 });
   logger.info({ phone, otp }, "OTP generated (demo — no real SMS sent)");
-  // Return OTP in response for demo purposes (no real SMS service)
   res.json({ success: true, otp });
 });
 
 // POST /api/users/verify-otp  { phone, otp }
+// Returns isReturningUser + user object if this phone already has an account
 router.post("/users/verify-otp", async (req, res): Promise<void> => {
   const { phone, otp } = req.body;
   if (!phone || !otp) { res.status(400).json({ error: "phone and otp required" }); return; }
@@ -153,7 +167,41 @@ router.post("/users/verify-otp", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Incorrect OTP" }); return;
   }
   otpStore.delete(phone);
-  res.json({ success: true });
+
+  // Check if this phone already has an account (returning user)
+  const [existingUser] = await db.select().from(usersTable).where(eq(usersTable.phone, phone));
+  if (existingUser) {
+    logger.info({ vcn: existingUser.vcn, phone }, "Returning user verified via OTP");
+    res.json({ success: true, isReturningUser: true, user: existingUser });
+    return;
+  }
+
+  res.json({ success: true, isReturningUser: false });
+});
+
+// POST /api/users/initialize-contacts
+// Creates starter AI contacts for a brand-new user (idempotent)
+router.post("/users/initialize-contacts", async (req, res): Promise<void> => {
+  const userId = (req.headers["x-user-id"] as string) || req.body?.userId;
+  if (!userId) { res.status(400).json({ error: "User ID required" }); return; }
+
+  // Fire off 3 starter contacts in background — respond immediately
+  res.json({ success: true, queued: 3 });
+
+  // Background: generate 3 unique contacts sequentially (to avoid duplicate names)
+  (async () => {
+    for (let i = 0; i < 3; i++) {
+      try {
+        const contact = await spawnContactForUser(userId);
+        if (contact) {
+          logger.info({ contactId: contact.id, name: contact.name, userId }, "Starter contact created");
+        }
+      } catch (err) {
+        logger.error({ err, userId }, "Failed to create starter contact");
+      }
+    }
+    logger.info({ userId }, "Starter contacts initialization complete");
+  })();
 });
 
 export default router;

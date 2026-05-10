@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 
 export const contactsTable = pgTable("contacts", {
   id: serial("id").primaryKey(),
+  userId: text("user_id"),
   name: text("name").notNull(),
   gender: text("gender").notNull().default("female"),
   personalityTone: text("personality_tone").notNull().default("warm"),

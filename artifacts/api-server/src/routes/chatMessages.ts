@@ -16,6 +16,11 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
+function getUserId(req: { headers: Record<string, string | string[] | undefined> }): string | undefined {
+  const v = req.headers["x-user-id"];
+  return typeof v === "string" ? v : undefined;
+}
+
 router.get("/contacts/:id/messages", async (req, res): Promise<void> => {
   const params = ListMessagesParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
@@ -136,17 +141,21 @@ router.post("/contacts/:id/messages", async (req, res): Promise<void> => {
   const parsed = SendMessageBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
 
+  const userId = getUserId(req);
+
   const [contact] = await db.select().from(contactsTable).where(eq(contactsTable.id, params.data.id));
   if (!contact) { res.status(404).json({ error: "Contact not found" }); return; }
 
   const [rel]    = await db.select().from(relationshipsTable).where(eq(relationshipsTable.contactId, contact.id));
   const [memory] = await db.select().from(memoriesTable).where(eq(memoriesTable.contactId, contact.id));
 
-  // Fetch other contacts for social circle context (exclude self, limit 5)
-  const otherContacts = await db.select({ id: contactsTable.id, name: contactsTable.name, bio: contactsTable.bio })
-    .from(contactsTable)
-    .where(ne(contactsTable.id, contact.id))
-    .limit(5);
+  // Fetch other contacts for social circle — only from this user's ecosystem
+  const otherContacts = userId
+    ? await db.select({ id: contactsTable.id, name: contactsTable.name, bio: contactsTable.bio })
+        .from(contactsTable)
+        .where(and(ne(contactsTable.id, contact.id), eq(contactsTable.userId, userId)))
+        .limit(5)
+    : [];
 
   // Check if contact was away for a long time (last AI message > 2h ago)
   const [lastAiMsg] = await db.select().from(chatMessagesTable)
@@ -262,14 +271,12 @@ router.post("/contacts/:id/initiate", async (req, res): Promise<void> => {
   const [contact] = await db.select().from(contactsTable).where(eq(contactsTable.id, params.data.id));
   if (!contact) { res.status(404).json({ error: "Contact not found" }); return; }
 
-  // Don't initiate if already thinking or offline/sleeping
   if (contact.activityState === "thinking") { res.json({ skipped: true }); return; }
   if (contact.activityState === "offline" || contact.activityState === "sleeping") { res.json({ skipped: true }); return; }
 
   const [rel] = await db.select().from(relationshipsTable).where(eq(relationshipsTable.contactId, contact.id));
   const [memory] = await db.select().from(memoriesTable).where(eq(memoriesTable.contactId, contact.id));
 
-  // Last 5 messages for context
   const recent = await db.select().from(chatMessagesTable)
     .where(eq(chatMessagesTable.contactId, contact.id))
     .orderBy(desc(chatMessagesTable.createdAt))

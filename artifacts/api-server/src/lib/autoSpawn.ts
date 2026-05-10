@@ -1,12 +1,11 @@
 import { db } from "@workspace/db";
-import { contactsTable, relationshipsTable, memoriesTable, chatMessagesTable } from "@workspace/db";
+import { contactsTable, relationshipsTable, memoriesTable, chatMessagesTable, usersTable } from "@workspace/db";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { logger } from "./logger";
-import { eq, desc, and, lt, sql, ne } from "drizzle-orm";
+import { eq, desc, and, ne, isNotNull } from "drizzle-orm";
 
-// ── Auto-spawn new contacts every 30–60 min ───────────────────────────────────
-const SPAWN_MIN_MS = 30 * 60 * 1000;
-const SPAWN_MAX_MS = 60 * 60 * 1000;
+// ── Auto-spawn new contacts every 3 hours per user ────────────────────────────
+const SPAWN_INTERVAL_MS = 3 * 60 * 60 * 1000;
 
 // ── Proactive follow-up every 20–45 min ───────────────────────────────────────
 const FOLLOWUP_MIN_MS = 20 * 60 * 1000;
@@ -41,7 +40,7 @@ async function generatePersona(): Promise<{
         content: `You are a creative writer generating realistic human social media personas.
 Return ONLY valid JSON:
 {
-  "name": "a real-sounding first+last name (diverse backgrounds, avoid overused AI names like Aria/Zara/Nova)",
+  "name": "a real-sounding first+last name (diverse backgrounds, avoid overused AI names like Aria/Zara/Nova/Kai)",
   "gender": "male" or "female" or "non-binary",
   "personalityTone": one of: "warm", "playful", "flirty", "mysterious", "intellectual", "blunt", "sarcastic", "chill",
   "languageStyle": one of: "casual", "slang", "poetic", "formal", "gen-z", "dry-humor",
@@ -50,7 +49,7 @@ Return ONLY valid JSON:
   "openingMessage": "A natural first text from this person — like they got your number from a mutual friend or found your profile. Short (under 20 words), casual, no emojis, sounds human."
 }
 
-ABSOLUTE LIMIT: Never produce sexual content, content involving minors, violence, self-harm. These personas exist in a safe social app.`
+ABSOLUTE LIMIT: Never produce sexual content, content involving minors, violence, self-harm.`
       },
       { role: "user", content: "Generate a unique persona now." }
     ],
@@ -61,13 +60,14 @@ ABSOLUTE LIMIT: Never produce sexual content, content involving minors, violence
   return JSON.parse(cleaned);
 }
 
-// ── Spawn a new contact ───────────────────────────────────────────────────────
-async function spawnContact(): Promise<void> {
-  logger.info("Auto-spawn: generating new contact...");
+// ── Spawn a contact for a specific user (exported for initialize-contacts) ────
+export async function spawnContactForUser(userId: string): Promise<{ id: number; name: string } | null> {
+  logger.info({ userId }, "Spawning new contact for user...");
 
   const persona = await generatePersona();
 
   const [contact] = await db.insert(contactsTable).values({
+    userId,
     name: persona.name,
     gender: persona.gender,
     personalityTone: persona.personalityTone,
@@ -77,7 +77,7 @@ async function spawnContact(): Promise<void> {
     activityState: "online",
   }).returning();
 
-  if (!contact) { logger.error("Auto-spawn: failed to insert contact"); return; }
+  if (!contact) { logger.error({ userId }, "Failed to insert contact for user"); return null; }
 
   await Promise.all([
     db.insert(relationshipsTable).values({ contactId: contact.id, state: "STRANGER" }),
@@ -92,7 +92,22 @@ async function spawnContact(): Promise<void> {
     isRead: false,
   });
 
-  logger.info({ contactId: contact.id, name: contact.name }, "Auto-spawn: new contact created and messaged");
+  logger.info({ contactId: contact.id, name: contact.name, userId }, "Contact spawned");
+  return { id: contact.id, name: contact.name };
+}
+
+// ── Auto-spawn: pick a random active user and give them a new contact ─────────
+async function spawnContact(): Promise<void> {
+  // Get all users
+  const users = await db.select({ vcn: usersTable.vcn }).from(usersTable);
+  if (users.length === 0) {
+    logger.info("Auto-spawn: no users found, skipping");
+    return;
+  }
+
+  // Pick a random user
+  const user = users[Math.floor(Math.random() * users.length)]!;
+  await spawnContactForUser(user.vcn);
 }
 
 // ── Proactive follow-up ───────────────────────────────────────────────────────
@@ -100,17 +115,17 @@ async function sendProactiveFollowUp(): Promise<void> {
   const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
   const twentyMinAgo = new Date(Date.now() - 20 * 60 * 1000);
 
-  // Find contacts that:
-  // 1. Have at least 1 prior message
-  // 2. Are not currently thinking
-  // 3. AI hasn't messaged them in last 20 min
+  // Only consider contacts that belong to a user (not orphaned) and are not thinking
   const contacts = await db.select().from(contactsTable)
-    .where(ne(contactsTable.activityState, "thinking"))
-    .limit(20);
+    .where(and(
+      ne(contactsTable.activityState, "thinking"),
+      isNotNull(contactsTable.userId),
+    ))
+    .limit(30);
 
   if (contacts.length === 0) return;
 
-  // Filter: must have messages, last user msg > 30 min ago, last AI msg > 20 min ago
+  // Filter: must have user messages, user last msg > 30 min ago, AI last msg > 20 min ago
   const candidates: typeof contacts = [];
   for (const contact of contacts) {
     const [lastUserMsg] = await db.select().from(chatMessagesTable)
@@ -121,7 +136,7 @@ async function sendProactiveFollowUp(): Promise<void> {
       .orderBy(desc(chatMessagesTable.createdAt))
       .limit(1);
 
-    if (!lastUserMsg) continue; // no user messages — skip, they haven't talked yet
+    if (!lastUserMsg) continue;
 
     const [lastAiMsg] = await db.select().from(chatMessagesTable)
       .where(and(
@@ -144,7 +159,6 @@ async function sendProactiveFollowUp(): Promise<void> {
     return;
   }
 
-  // Pick one random candidate (weighted — prefer fewer recent messages)
   const chosen = candidates[Math.floor(Math.random() * candidates.length)]!;
   const [rel] = await db.select().from(relationshipsTable).where(eq(relationshipsTable.contactId, chosen.id));
   const [memory] = await db.select().from(memoriesTable).where(eq(memoriesTable.contactId, chosen.id));
@@ -153,7 +167,6 @@ async function sendProactiveFollowUp(): Promise<void> {
   const userName = memory?.userName ?? "them";
   const timeCtx = getTimeContext();
 
-  // Recent context
   const recent = await db.select().from(chatMessagesTable)
     .where(eq(chatMessagesTable.contactId, chosen.id))
     .orderBy(desc(chatMessagesTable.createdAt))
@@ -209,15 +222,10 @@ Keep it short and human.`
 
 // ── Schedulers ────────────────────────────────────────────────────────────────
 export function startAutoSpawn(): void {
-  function scheduleNext(): void {
-    const delay = randInterval(SPAWN_MIN_MS, SPAWN_MAX_MS);
-    logger.info({ nextSpawnInHours: (delay / 3600000).toFixed(2) }, "Auto-spawn: next contact scheduled");
-    setTimeout(async () => {
-      try { await spawnContact(); } catch (err) { logger.error({ err }, "Auto-spawn: error"); }
-      scheduleNext();
-    }, delay);
-  }
-  scheduleNext();
+  logger.info({ intervalHours: (SPAWN_INTERVAL_MS / 3600000).toFixed(1) }, "Auto-spawn: scheduler started (3h interval)");
+  setInterval(async () => {
+    try { await spawnContact(); } catch (err) { logger.error({ err }, "Auto-spawn: error"); }
+  }, SPAWN_INTERVAL_MS);
 }
 
 export function startProactiveFollowUps(): void {

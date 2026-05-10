@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, and } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { contactsTable, relationshipsTable, chatMessagesTable, memoriesTable } from "@workspace/db";
 import {
@@ -16,8 +16,18 @@ import {
 
 const router: IRouter = Router();
 
+function getUserId(req: { headers: Record<string, string | string[] | undefined> }): string | undefined {
+  const v = req.headers["x-user-id"];
+  return typeof v === "string" ? v : undefined;
+}
+
 router.get("/contacts", async (req, res): Promise<void> => {
-  const contacts = await db.select().from(contactsTable).orderBy(desc(contactsTable.updatedAt));
+  const userId = getUserId(req);
+  if (!userId) { res.json([]); return; }
+
+  const contacts = await db.select().from(contactsTable)
+    .where(eq(contactsTable.userId, userId))
+    .orderBy(desc(contactsTable.updatedAt));
 
   const summaries = await Promise.all(contacts.map(async (contact) => {
     const [rel] = await db.select().from(relationshipsTable).where(eq(relationshipsTable.contactId, contact.id));
@@ -46,6 +56,9 @@ router.get("/contacts", async (req, res): Promise<void> => {
 });
 
 router.post("/contacts", async (req, res): Promise<void> => {
+  const userId = getUserId(req);
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+
   const parsed = CreateContactBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -53,6 +66,7 @@ router.post("/contacts", async (req, res): Promise<void> => {
   }
 
   const [contact] = await db.insert(contactsTable).values({
+    userId,
     name: parsed.data.name,
     gender: parsed.data.gender,
     personalityTone: parsed.data.personalityTone,
@@ -72,7 +86,11 @@ router.get("/contacts/:id", async (req, res): Promise<void> => {
   const params = GetContactParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
 
-  const [contact] = await db.select().from(contactsTable).where(eq(contactsTable.id, params.data.id));
+  const userId = getUserId(req);
+  const conditions = [eq(contactsTable.id, params.data.id)];
+  if (userId) conditions.push(eq(contactsTable.userId, userId));
+
+  const [contact] = await db.select().from(contactsTable).where(and(...conditions));
   if (!contact) { res.status(404).json({ error: "Contact not found" }); return; }
 
   res.json(GetContactResponse.parse(contact));
@@ -85,9 +103,13 @@ router.patch("/contacts/:id", async (req, res): Promise<void> => {
   const parsed = UpdateContactBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
 
+  const userId = getUserId(req);
+  const conditions = [eq(contactsTable.id, params.data.id)];
+  if (userId) conditions.push(eq(contactsTable.userId, userId));
+
   const [contact] = await db.update(contactsTable)
     .set({ ...parsed.data, updatedAt: new Date() })
-    .where(eq(contactsTable.id, params.data.id))
+    .where(and(...conditions))
     .returning();
 
   if (!contact) { res.status(404).json({ error: "Contact not found" }); return; }
@@ -98,17 +120,25 @@ router.delete("/contacts/:id", async (req, res): Promise<void> => {
   const params = DeleteContactParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
 
-  const [deleted] = await db.delete(contactsTable).where(eq(contactsTable.id, params.data.id)).returning();
+  const userId = getUserId(req);
+  const conditions = [eq(contactsTable.id, params.data.id)];
+  if (userId) conditions.push(eq(contactsTable.userId, userId));
+
+  const [deleted] = await db.delete(contactsTable).where(and(...conditions)).returning();
   if (!deleted) { res.status(404).json({ error: "Contact not found" }); return; }
   res.sendStatus(204);
 });
 
-// ── Find contact by ID (for contact sharing / add-by-ID) ─────────────────────
+// ── Find contact by ID (within the user's own ecosystem) ─────────────────────
 router.get("/contacts/find/:id", async (req, res): Promise<void> => {
   const id = parseInt(req.params.id ?? "", 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid contact ID" }); return; }
 
-  const [contact] = await db.select().from(contactsTable).where(eq(contactsTable.id, id));
+  const userId = getUserId(req);
+  const conditions = [eq(contactsTable.id, id)];
+  if (userId) conditions.push(eq(contactsTable.userId, userId));
+
+  const [contact] = await db.select().from(contactsTable).where(and(...conditions));
   if (!contact) { res.status(404).json({ error: "No contact found with that ID" }); return; }
 
   res.json(GetContactResponse.parse(contact));
@@ -118,7 +148,11 @@ router.get("/contacts/:id/activity", async (req, res): Promise<void> => {
   const params = GetContactActivityParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
 
-  const [contact] = await db.select().from(contactsTable).where(eq(contactsTable.id, params.data.id));
+  const userId = getUserId(req);
+  const conditions = [eq(contactsTable.id, params.data.id)];
+  if (userId) conditions.push(eq(contactsTable.userId, userId));
+
+  const [contact] = await db.select().from(contactsTable).where(and(...conditions));
   if (!contact) { res.status(404).json({ error: "Contact not found" }); return; }
 
   res.json(GetContactActivityResponse.parse({

@@ -21,6 +21,7 @@ import ContactProfile from "@/pages/contact-profile";
 import StatusFeed from "@/pages/status-feed";
 import NewContact from "@/pages/new-contact";
 import Profile from "@/pages/profile";
+import ReviewPrompt from "@/components/review-prompt";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -108,16 +109,19 @@ function AppShell() {
 
   // ── Main app ─────────────────────────────────────────────────────────────
   return (
-    <Switch>
-      <Route path="/" component={Splash} />
-      <Route path="/chats" component={ChatList} />
-      <Route path="/chats/:id" component={ChatScreen} />
-      <Route path="/contacts/:id" component={ContactProfile} />
-      <Route path="/status" component={StatusFeed} />
-      <Route path="/new-contact" component={NewContact} />
-      <Route path="/profile" component={Profile} />
-      <Route component={NotFound} />
-    </Switch>
+    <>
+      <Switch>
+        <Route path="/" component={Splash} />
+        <Route path="/chats" component={ChatList} />
+        <Route path="/chats/:id" component={ChatScreen} />
+        <Route path="/contacts/:id" component={ContactProfile} />
+        <Route path="/status" component={StatusFeed} />
+        <Route path="/new-contact" component={NewContact} />
+        <Route path="/profile" component={Profile} />
+        <Route component={NotFound} />
+      </Switch>
+      <ReviewPrompt />
+    </>
   );
 }
 
