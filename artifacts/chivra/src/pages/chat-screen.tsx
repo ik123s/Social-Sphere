@@ -13,11 +13,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Layout } from "@/components/layout";
 import { ContactAvatar } from "@/components/contact-avatar";
 import { TypingIndicator } from "@/components/typing-indicator";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
-  Send, ArrowLeft, Phone, Video, Mic, MicOff,
-  Image as ImageIcon, X, Play, Pause, Reply, Check, CheckCheck,
+  Send, ArrowLeft, Phone, Video, Mic,
+  Image as ImageIcon, X, Play, Pause, Reply, CheckCheck,
+  MoreVertical, Search,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { format, isToday, isYesterday } from "date-fns";
@@ -39,7 +39,6 @@ function formatLastSeen(state: string, lastSeenAt?: string | null): string {
   if (state === "online")    return "online";
   if (state === "idle")      return "idle";
   if (state === "sleeping")  return "sleeping";
-  // offline
   if (!lastSeenAt) return "last seen recently";
   const diffMs  = Date.now() - new Date(lastSeenAt).getTime();
   const diffMin = Math.floor(diffMs / 60000);
@@ -51,7 +50,6 @@ function formatLastSeen(state: string, lastSeenAt?: string | null): string {
   return "last seen a while ago";
 }
 
-// Parse [[SHARE_CONTACT:id]] tokens from AI message content
 function parseContactShare(content: string): { text: string; sharedContactId: number | null } {
   const match = content.match(/\[\[SHARE_CONTACT:(\d+)\]\]/);
   if (!match) return { text: content, sharedContactId: null };
@@ -61,12 +59,11 @@ function parseContactShare(content: string): { text: string; sharedContactId: nu
 
 // ── Waveform voice player ─────────────────────────────────────────────────────
 function VoiceNotePlayer({ src, isUser }: { src: string; isUser: boolean }) {
-  const [playing, setPlaying]     = useState(false);
-  const [progress, setProgress]   = useState(0);
-  const [duration, setDuration]   = useState(0);
+  const [playing, setPlaying]   = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Deterministic fake waveform based on src hash
   const bars = useMemo(() => {
     const hash = src.slice(-40).split("").reduce((a, c) => a + c.charCodeAt(0), 0);
     return Array.from({ length: 30 }, (_, i) => {
@@ -104,7 +101,6 @@ function VoiceNotePlayer({ src, isUser }: { src: string; isUser: boolean }) {
         {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 ml-0.5" />}
       </button>
 
-      {/* Waveform bars */}
       <div className="flex items-center gap-[2px] flex-1 h-8 overflow-hidden">
         {bars.map((h, i) => {
           const played = i / bars.length < progress;
@@ -131,14 +127,14 @@ function VoiceNotePlayer({ src, isUser }: { src: string; isUser: boolean }) {
 
 // ── Swipeable message wrapper ─────────────────────────────────────────────────
 function SwipeableMessage({ children, onSwipeRight }: { children: React.ReactNode; onSwipeRight: () => void }) {
-  const [dx, setDx]         = useState(0);
-  const startXRef           = useRef(0);
-  const isDraggingRef       = useRef(false);
+  const [dx, setDx]       = useState(0);
+  const startXRef         = useRef(0);
+  const isDraggingRef     = useRef(false);
 
   return (
     <div
       onTouchStart={(e) => {
-        startXRef.current   = e.touches[0]!.clientX;
+        startXRef.current     = e.touches[0]!.clientX;
         isDraggingRef.current = true;
       }}
       onTouchMove={(e) => {
@@ -190,7 +186,6 @@ function MessageBubble({ msg, isSameGroup, isLast }: { msg: Msg; isSameGroup: bo
 
   return (
     <div className={`flex flex-col ${isUser ? "items-end" : "items-start"} gap-0.5`}>
-      {/* Reply quote */}
       {msg.replyTo && (
         <div className={`${bubbleCls} px-3 pt-2 pb-1 mb-0.5 opacity-80`}>
           <div className={`flex gap-2 ${replyBg} rounded-xl p-2 mb-1`}>
@@ -202,7 +197,6 @@ function MessageBubble({ msg, isSameGroup, isLast }: { msg: Msg; isSameGroup: bo
         </div>
       )}
 
-      {/* Main bubble */}
       {msg.messageType === "image" ? (
         <div className={`${bubbleCls} overflow-hidden`}>
           <img src={msg.content} alt="Shared" className="max-w-full rounded-2xl object-cover" style={{ maxHeight: 280 }} />
@@ -217,7 +211,6 @@ function MessageBubble({ msg, isSameGroup, isLast }: { msg: Msg; isSameGroup: bo
         </div>
       )}
 
-      {/* Status indicator for last user message */}
       {isUser && isLast && msg.messageType === "text" && (
         <div className="flex items-center gap-1 mr-1">
           <CheckCheck className="h-3 w-3 text-primary/60" />
@@ -242,9 +235,7 @@ function MicPermissionModal({ onClose }: { onClose: () => void }) {
         className="w-full bg-card rounded-t-3xl p-6 pb-10 border-t border-border space-y-4"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex justify-center">
-          <div className="w-10 h-1 bg-muted rounded-full" />
-        </div>
+        <div className="flex justify-center"><div className="w-10 h-1 bg-muted rounded-full" /></div>
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-2xl bg-primary/15 flex items-center justify-center">
             <Mic className="h-5 w-5 text-primary" />
@@ -261,6 +252,12 @@ function MicPermissionModal({ onClose }: { onClose: () => void }) {
       </motion.div>
     </motion.div>
   );
+}
+
+// Strip [[SEND_IMAGE:...]] tokens from display text
+const SEND_IMAGE_DISPLAY_RE = /\[\[SEND_IMAGE:[^\]]*\]?\]?/g;
+function stripSendImageToken(text: string) {
+  return text.replace(SEND_IMAGE_DISPLAY_RE, "").trim();
 }
 
 // ── Chat screen ───────────────────────────────────────────────────────────────
@@ -289,7 +286,7 @@ export default function ChatScreen() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Voice recording
-  const [isRecording,   setIsRecording]   = useState(false);
+  const [isRecording,    setIsRecording]    = useState(false);
   const [recordDuration, setRecordDuration] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef   = useRef<Blob[]>([]);
@@ -298,11 +295,24 @@ export default function ChatScreen() {
   // Call state
   const [callState, setCallState] = useState<{ callType: CallType } | null>(null);
 
-  const messagesEndRef     = useRef<HTMLDivElement>(null);
+  // Chat menu + search
+  const [showMenu,     setShowMenu]     = useState(false);
+  const [searchActive, setSearchActive] = useState(false);
+  const [searchQuery,  setSearchQuery]  = useState("");
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef    = useRef<HTMLTextAreaElement>(null);
 
   const scrollToBottom = useCallback((smooth = false) => {
     messagesEndRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "instant" });
   }, []);
+
+  // Filtered messages for search
+  const filteredMessages = useMemo(() => {
+    if (!searchQuery.trim()) return messages;
+    const q = searchQuery.toLowerCase();
+    return messages.filter(m => m.messageType === "text" && m.content.toLowerCase().includes(q));
+  }, [messages, searchQuery]);
 
   useEffect(() => {
     if (initialMessages) {
@@ -320,6 +330,33 @@ export default function ChatScreen() {
   }, [initialMessages, contactId]);
 
   useEffect(() => { scrollToBottom(); }, [messages, streamingMessage, isTyping]);
+
+  // Paste image from clipboard
+  useEffect(() => {
+    const handler = (e: ClipboardEvent) => {
+      if (isRecording) return;
+      const items = Array.from(e.clipboardData?.items ?? []);
+      for (const item of items) {
+        if (item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (!file) continue;
+          const reader = new FileReader();
+          reader.onload = ev => setImagePreview(ev.target?.result as string);
+          reader.readAsDataURL(file);
+          e.preventDefault();
+          break;
+        }
+      }
+    };
+    window.addEventListener("paste", handler);
+    return () => window.removeEventListener("paste", handler);
+  }, [isRecording]);
+
+  // Auto-grow textarea helper
+  const autoGrow = (el: HTMLTextAreaElement) => {
+    el.style.height = "44px";
+    el.style.height = Math.min(el.scrollHeight, 120) + "px";
+  };
 
   // ── Send message ────────────────────────────────────────────────────────────
   const sendMessage = async (content: string, messageType: "text" | "image" | "audio" = "text") => {
@@ -377,19 +414,27 @@ export default function ChatScreen() {
             if (line.startsWith("data: ")) {
               try {
                 const data = JSON.parse(line.slice(6));
-                if (data.content) { fullAiMessage += data.content; setStreamingMessage(fullAiMessage); }
+                if (data.content) {
+                  fullAiMessage += data.content;
+                  setStreamingMessage(stripSendImageToken(fullAiMessage));
+                }
               } catch { /* ignore */ }
             }
           }
         }
         if (fullAiMessage) {
+          const displayMsg = stripSendImageToken(fullAiMessage);
           setMessages(prev => [...prev, {
-            id: Date.now() + 1, contactId, sender: "ai", content: fullAiMessage,
+            id: Date.now() + 1, contactId, sender: "ai", content: displayMsg || fullAiMessage,
             messageType: "text", isRead: true, createdAt: new Date().toISOString(),
           }]);
           setStreamingMessage("");
           queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(contactId) });
           queryClient.invalidateQueries({ queryKey: getListContactsQueryKey() });
+          // Re-fetch after delay to pick up any AI-generated image (image gen takes ~10s)
+          setTimeout(() => {
+            queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(contactId) });
+          }, 13000);
         }
       }
     } catch {
@@ -406,6 +451,7 @@ export default function ChatScreen() {
     if (!input.trim()) return;
     const msg = input.trim();
     setInput("");
+    if (textareaRef.current) textareaRef.current.style.height = "44px";
     sendMessage(msg, "text");
   };
 
@@ -463,8 +509,8 @@ export default function ChatScreen() {
     audioChunksRef.current = [];
   };
 
-  const currentState  = activity?.activityState || contact?.activityState || "online";
-  const activityLabel = formatLastSeen(currentState, activity?.lastSeenAt);
+  const currentState   = activity?.activityState || contact?.activityState || "online";
+  const activityLabel  = formatLastSeen(currentState, activity?.lastSeenAt);
   const isOfflineState = currentState === "offline" || currentState === "sleeping" || currentState === "idle";
 
   const callContact: CallContact | null = contact
@@ -491,57 +537,145 @@ export default function ChatScreen() {
           {showMicModal && <MicPermissionModal onClose={() => setShowMicModal(false)} />}
         </AnimatePresence>
 
+        {/* ── Click-away to close menu ─────────────────────────────────────── */}
+        {showMenu && (
+          <div className="absolute inset-0 z-40" onClick={() => setShowMenu(false)} />
+        )}
+
         {/* ── Header ──────────────────────────────────────────────────────── */}
-        <header className="px-3 py-2.5 bg-card/95 backdrop-blur-xl border-b border-border flex items-center justify-between z-10 flex-shrink-0">
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full flex-shrink-0" onClick={() => setLocation("/chats")}>
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            {isContactLoading ? (
-              <div className="flex items-center gap-3">
-                <Skeleton className="h-10 w-10 rounded-full" />
-                <div className="space-y-1"><Skeleton className="h-3 w-24" /><Skeleton className="h-2 w-16" /></div>
-              </div>
-            ) : contact ? (
-              <Link href={`/contacts/${contact.id}`} className="flex items-center gap-2.5 min-w-0">
-                <ContactAvatar src={contact.avatarUrl} name={contact.name} activityState={activity?.activityState || contact.activityState} size="sm" />
-                <div className="min-w-0">
-                  <h2 className="font-semibold text-sm leading-tight truncate">{contact.name}</h2>
-                  <motion.p
-                    key={activityLabel}
-                    initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                    className={`text-[10px] ${
-                      activityLabel === "typing..."
-                        ? "text-primary font-medium"
-                        : isOfflineState
-                          ? "text-muted-foreground/60"
-                          : "text-muted-foreground"
-                    }`}
-                  >
-                    {activityLabel}
-                  </motion.p>
+        <header className="px-3 py-2.5 bg-card/95 backdrop-blur-xl border-b border-border flex flex-col z-10 flex-shrink-0">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full flex-shrink-0" onClick={() => setLocation("/chats")}>
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+              {isContactLoading ? (
+                <div className="flex items-center gap-3">
+                  <Skeleton className="h-10 w-10 rounded-full" />
+                  <div className="space-y-1"><Skeleton className="h-3 w-24" /><Skeleton className="h-2 w-16" /></div>
                 </div>
-              </Link>
-            ) : null}
+              ) : contact ? (
+                <Link href={`/contacts/${contact.id}`} className="flex items-center gap-2.5 min-w-0">
+                  <ContactAvatar src={contact.avatarUrl} name={contact.name} activityState={activity?.activityState || contact.activityState} size="sm" />
+                  <div className="min-w-0">
+                    <h2 className="font-semibold text-sm leading-tight truncate">{contact.name}</h2>
+                    <motion.p
+                      key={activityLabel}
+                      initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                      className={`text-[10px] ${
+                        activityLabel === "typing..."
+                          ? "text-primary font-medium"
+                          : isOfflineState
+                            ? "text-muted-foreground/60"
+                            : "text-muted-foreground"
+                      }`}
+                    >
+                      {activityLabel}
+                    </motion.p>
+                  </div>
+                </Link>
+              ) : null}
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex items-center gap-0.5">
+              <Button
+                variant="ghost" size="icon"
+                className="h-9 w-9 rounded-full text-muted-foreground hover:text-foreground"
+                onClick={() => setCallState({ callType: "voice" })}
+              >
+                <Phone className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost" size="icon"
+                className="h-9 w-9 rounded-full text-muted-foreground hover:text-foreground"
+                onClick={() => setCallState({ callType: "video" })}
+              >
+                <Video className="h-4 w-4" />
+              </Button>
+
+              {/* 3-dot menu */}
+              <div className="relative z-50">
+                <Button
+                  variant="ghost" size="icon"
+                  className="h-9 w-9 rounded-full text-muted-foreground hover:text-foreground"
+                  onClick={() => setShowMenu(v => !v)}
+                >
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+                <AnimatePresence>
+                  {showMenu && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95, y: -4 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95, y: -4 }}
+                      transition={{ duration: 0.12 }}
+                      className="absolute right-0 top-10 w-52 bg-card border border-border rounded-2xl shadow-2xl overflow-hidden"
+                    >
+                      {[
+                        {
+                          label: "View contact",
+                          action: () => { setLocation(`/contacts/${contact?.id}`); setShowMenu(false); },
+                        },
+                        {
+                          label: searchActive ? "Close search" : "Search messages",
+                          action: () => { setSearchActive(v => !v); if (searchActive) setSearchQuery(""); setShowMenu(false); },
+                        },
+                        {
+                          label: "Clear chat",
+                          action: () => {
+                            setMessages([]);
+                            setShowMenu(false);
+                            toast({ title: "Chat cleared" });
+                          },
+                        },
+                      ].map(item => (
+                        <button
+                          key={item.label}
+                          onClick={item.action}
+                          className="w-full text-left px-4 py-3 text-sm hover:bg-muted/50 transition-colors border-b border-border/30 last:border-0"
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
           </div>
 
-          {/* Call buttons */}
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost" size="icon"
-              className="h-9 w-9 rounded-full text-muted-foreground hover:text-foreground"
-              onClick={() => setCallState({ callType: "voice" })}
-            >
-              <Phone className="h-4.5 w-4.5" />
-            </Button>
-            <Button
-              variant="ghost" size="icon"
-              className="h-9 w-9 rounded-full text-muted-foreground hover:text-foreground"
-              onClick={() => setCallState({ callType: "video" })}
-            >
-              <Video className="h-4.5 w-4.5" />
-            </Button>
-          </div>
+          {/* Search bar */}
+          <AnimatePresence>
+            {searchActive && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.18 }}
+                className="overflow-hidden"
+              >
+                <div className="flex items-center gap-2 pt-2.5">
+                  <Search className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                  <input
+                    autoFocus
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    placeholder="Search in conversation..."
+                    className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
+                  />
+                  {searchQuery && (
+                    <span className="text-[10px] text-muted-foreground flex-shrink-0">
+                      {filteredMessages.length} result{filteredMessages.length !== 1 ? "s" : ""}
+                    </span>
+                  )}
+                  <button onClick={() => { setSearchActive(false); setSearchQuery(""); }} className="flex-shrink-0">
+                    <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </header>
 
         {/* ── Messages ────────────────────────────────────────────────────── */}
@@ -552,14 +686,18 @@ export default function ChatScreen() {
             </div>
           ) : (
             <div className="flex flex-col gap-1 min-h-full justify-end">
+              {searchActive && searchQuery && filteredMessages.length === 0 && (
+                <div className="flex justify-center py-8">
+                  <span className="text-xs text-muted-foreground bg-muted/50 px-3 py-1.5 rounded-full">No messages found</span>
+                </div>
+              )}
               <AnimatePresence initial={false}>
-                {messages.map((msg, idx) => {
+                {filteredMessages.map((msg, idx) => {
                   const isUser    = msg.sender === "user";
-                  const prevMsg   = messages[idx - 1];
+                  const prevMsg   = filteredMessages[idx - 1];
                   const showTime  = !prevMsg || new Date(msg.createdAt).getTime() - new Date(prevMsg.createdAt).getTime() > 5 * 60 * 1000;
                   const isSameGroup = !!(prevMsg && prevMsg.sender === msg.sender && !showTime);
-                  const isLast    = idx === messages.length - 1;
-                  const isLastUser = isUser && messages.slice(idx + 1).every(m => m.sender !== "user");
+                  const isLastUser = isUser && filteredMessages.slice(idx + 1).every(m => m.sender !== "user");
 
                   return (
                     <motion.div
@@ -689,40 +827,47 @@ export default function ChatScreen() {
 
           {/* Input bar */}
           {!isRecording && (
-            <form onSubmit={handleSend} className="flex items-center gap-2">
+            <form onSubmit={handleSend} className="flex items-end gap-2">
               <input ref={fileInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleImagePick} />
 
               {/* Attach */}
               <Button type="button" variant="ghost" size="icon"
-                className="h-10 w-10 rounded-full flex-shrink-0 text-muted-foreground hover:text-foreground"
+                className="h-10 w-10 rounded-full flex-shrink-0 text-muted-foreground hover:text-foreground mb-0.5"
                 onClick={() => fileInputRef.current?.click()} disabled={isSending}
               >
                 <ImageIcon className="h-5 w-5" />
               </Button>
 
-              {/* Text input */}
+              {/* Multiline auto-grow textarea */}
               <div className="flex-1 relative">
-                <Input
+                <textarea
+                  ref={textareaRef}
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
+                  rows={1}
+                  disabled={isSending}
+                  placeholder={imagePreview ? "Add a caption..." : "Message..."}
+                  onChange={e => {
+                    setInput(e.target.value);
+                    autoGrow(e.currentTarget);
+                  }}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey && !imagePreview) {
-                      e.preventDefault(); handleSend(e as any);
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      if (imagePreview || input.trim()) handleSend(e as any);
                     }
                   }}
-                  placeholder={imagePreview ? "Add a caption..." : "Message..."}
-                  className="py-3 h-auto min-h-[44px] bg-muted/40 border-transparent focus-visible:ring-primary/30 rounded-2xl text-[15px] pr-12"
-                  disabled={isSending}
+                  className="w-full min-h-[44px] max-h-[120px] resize-none py-2.5 pl-3.5 pr-12 bg-muted/40 border border-transparent focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-2xl text-[15px] leading-relaxed overflow-y-auto placeholder:text-muted-foreground/60"
+                  style={{ height: "44px" }}
                 />
                 {(input.trim() || imagePreview) ? (
                   <Button type="submit" size="icon" disabled={isSending}
-                    className="absolute right-1.5 top-1/2 -translate-y-1/2 h-8 w-8 rounded-xl bg-primary"
+                    className="absolute right-1.5 bottom-[5px] h-8 w-8 rounded-xl bg-primary flex-shrink-0"
                   >
                     <Send className="h-3.5 w-3.5" />
                   </Button>
                 ) : (
                   <Button type="button" size="icon" onClick={startRecording}
-                    className="absolute right-1.5 top-1/2 -translate-y-1/2 h-8 w-8 rounded-xl bg-transparent text-muted-foreground hover:text-primary hover:bg-primary/10"
+                    className="absolute right-1.5 bottom-[5px] h-8 w-8 rounded-xl bg-transparent text-muted-foreground hover:text-primary hover:bg-primary/10"
                   >
                     <Mic className="h-4 w-4" />
                   </Button>

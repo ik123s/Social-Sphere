@@ -56,7 +56,7 @@ const VERSION_HISTORY: VersionEntry[] = [
   },
   {
     version: "3.4.2", version_code: 9, update_type: "major", released_at: "2026-06-08T00:00:00Z",
-    force_update: true, delay_limit_days: 0, update_description: "Chivra 3.4 — Connection requests, status reactions, and SEO",
+    force_update: false, delay_limit_days: 0, update_description: "Chivra 3.4 — Connection requests, status reactions, and SEO",
     changes: [
       "Connection request system — send, receive, accept, and decline VCN connections",
       "Pending request inbox with Accept/Decline buttons in the VCN tab",
@@ -68,9 +68,25 @@ const VERSION_HISTORY: VersionEntry[] = [
       "SEO improvements — meta description, Open Graph tags, robots.txt",
     ],
   },
+  {
+    version: "3.4.3", version_code: 10, update_type: "minor", released_at: "2026-06-08T12:00:00Z",
+    force_update: true, delay_limit_days: 0, update_description: "Chivra 3.4.3 — Vision, Profile Photos, and Chat Polish",
+    changes: [
+      "AI can now see and react to photos you send in chat",
+      "AI contacts send selfies and photos when you ask — powered by image generation",
+      "Upload a profile photo from your camera or gallery",
+      "Chat input is now multiline and grows as you type (up to 6 lines)",
+      "Paste any image from clipboard directly into the chat composer",
+      "3-dot menu in chat with Search, View Contact, and Clear Chat",
+      "Search messages within any conversation",
+      "Chat scroll and input bar layout improvements",
+      "Platform stability improvements (version 2.2.0 features incorporated)",
+    ],
+  },
 ];
 
 const LATEST = VERSION_HISTORY[VERSION_HISTORY.length - 1]!;
+
 const MINIMUM_SUPPORTED_VERSION_CODE = 1;
 
 router.get("/version", (_req, res): void => {

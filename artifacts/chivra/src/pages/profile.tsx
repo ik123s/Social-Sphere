@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
@@ -7,9 +7,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   User, Bell, Lock, MessageCircle, Info, ChevronRight, Edit2, Check, Copy,
   CheckCheck, X, Shield, Eye, EyeOff, BellOff, BellRing, Palette, HardDrive,
-  UserX, Smartphone, ChevronLeft, LogOut, AlertTriangle, Loader2,
+  UserX, Smartphone, ChevronLeft, LogOut, AlertTriangle, Loader2, Camera,
 } from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { getStoredVcn, getDisplayName, setDisplayName, getStatusText, setStatusText, formatVcn } from "@/lib/vcn";
 import { Switch } from "@/components/ui/switch";
@@ -404,6 +404,8 @@ function AccountModal({ displayName, statusText, onSave, onClose }: { displayNam
   );
 }
 
+const PROFILE_AVATAR_KEY = "chivra_profile_avatar";
+
 // ── Main profile page ─────────────────────────────────────────────────────────
 export default function Profile() {
   const { toast }     = useToast();
@@ -416,8 +418,29 @@ export default function Profile() {
   const [tempStatus,   setTempStatus]   = useState(statusTextS);
   const [copied,       setCopied]       = useState(false);
   const [activeModal,  setActiveModal]  = useState<ModalId>(null);
+  const [profileAvatar, setProfileAvatar] = useState<string | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { setVcn(getStoredVcn()); }, []);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(PROFILE_AVATAR_KEY);
+    if (saved) setProfileAvatar(saved);
+  }, []);
+
+  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const b64 = ev.target?.result as string;
+      setProfileAvatar(b64);
+      localStorage.setItem(PROFILE_AVATAR_KEY, b64);
+      toast({ title: "Profile photo updated" });
+    };
+    reader.readAsDataURL(file);
+    if (avatarInputRef.current) avatarInputRef.current.value = "";
+  };
 
   const saveName = async (name?: string) => {
     const trimmed = (name ?? tempName).trim() || "You";
@@ -482,7 +505,7 @@ export default function Profile() {
     {
       title: "About",
       items: [
-        { id: "app-info" as ModalId, icon: Info, label: "App info", sub: "Chivra v2.0.1" },
+        { id: "app-info" as ModalId, icon: Info, label: "App info", sub: "Chivra v3.4.3" },
       ],
     },
   ];
@@ -521,10 +544,24 @@ export default function Profile() {
               <div className="p-0.5 rounded-full bg-gradient-to-tr from-violet-500 to-pink-500 shadow-xl">
                 <div className="p-1 rounded-full bg-background">
                   <Avatar className="h-24 w-24">
+                    <AvatarImage src={profileAvatar ?? undefined} className="object-cover" />
                     <AvatarFallback className="bg-primary/10 text-primary text-2xl font-bold">{initials}</AvatarFallback>
                   </Avatar>
                 </div>
               </div>
+              <button
+                onClick={() => avatarInputRef.current?.click()}
+                className="absolute -bottom-1 -right-1 h-8 w-8 rounded-full bg-primary flex items-center justify-center shadow-lg border-2 border-background active:scale-95 transition-transform"
+              >
+                <Camera className="h-3.5 w-3.5 text-primary-foreground" />
+              </button>
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                className="hidden"
+                onChange={handleAvatarUpload}
+              />
             </div>
 
             {editingName ? (
