@@ -1,9 +1,9 @@
 // ── Client version ────────────────────────────────────────────────────────────
-const CLIENT_VERSION = "3.3.0";
-const CLIENT_VERSION_CODE = 8;
+const CLIENT_VERSION = "3.4.2";
+const CLIENT_VERSION_CODE = 9;
 
 // ── Storage keys ─────────────────────────────────────────────────────────────
-const DISMISSED_KEY = "chivra_update_dismissed_v"; // + version string suffix
+const DISMISSED_KEY = "chivra_update_dismissed_v";
 const APPLIED_KEY   = "chivra_applied_version_code";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
