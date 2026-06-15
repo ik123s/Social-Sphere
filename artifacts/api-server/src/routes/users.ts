@@ -7,6 +7,40 @@ import { spawnContactForUser } from "../lib/autoSpawn";
 
 const router: IRouter = Router();
 
+// Select only columns guaranteed to exist in production DB.
+// "banned" was added after initial production deploy — using SELECT * breaks
+// login on any production DB that hasn't been schema-synced yet.
+const safeUserCols = {
+  id: usersTable.id,
+  vcn: usersTable.vcn,
+  phone: usersTable.phone,
+  displayName: usersTable.displayName,
+  avatarUrl: usersTable.avatarUrl,
+  statusText: usersTable.statusText,
+  createdAt: usersTable.createdAt,
+} as const;
+
+// Try to also read banned when the column exists; falls back gracefully if not.
+async function fetchUserByVcn(vcn: string) {
+  try {
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.vcn, vcn));
+    return user ?? null;
+  } catch {
+    const [user] = await db.select(safeUserCols).from(usersTable).where(eq(usersTable.vcn, vcn));
+    return user ? { ...user, banned: false } : null;
+  }
+}
+
+async function fetchUserByPhone(phone: string) {
+  try {
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.phone, phone));
+    return user ?? null;
+  } catch {
+    const [user] = await db.select(safeUserCols).from(usersTable).where(eq(usersTable.phone, phone));
+    return user ? { ...user, banned: false } : null;
+  }
+}
+
 function generateVcn(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let vcn = "";
@@ -30,7 +64,7 @@ router.post("/users/register", async (req, res): Promise<void> => {
   const { vcn: existingVcn, displayName, avatarUrl, statusText, phone } = req.body;
 
   if (existingVcn) {
-    const [user] = await db.select().from(usersTable).where(eq(usersTable.vcn, existingVcn));
+    const user = await fetchUserByVcn(existingVcn);
     if (user) {
       if (phone && !user.phone) {
         await db.update(usersTable).set({ phone }).where(eq(usersTable.vcn, existingVcn));
@@ -41,7 +75,7 @@ router.post("/users/register", async (req, res): Promise<void> => {
   }
 
   if (phone) {
-    const [user] = await db.select().from(usersTable).where(eq(usersTable.phone, phone));
+    const user = await fetchUserByPhone(phone);
     if (user) {
       res.json(user);
       return;
@@ -84,8 +118,8 @@ router.post("/users/connect", async (req, res): Promise<void> => {
   if (!myVcn || !targetVcn) { res.status(400).json({ error: "Both VCNs required" }); return; }
   if (myVcn === targetVcn) { res.status(400).json({ error: "Cannot connect to yourself" }); return; }
 
-  const [me]   = await db.select().from(usersTable).where(eq(usersTable.vcn, myVcn));
-  const [them] = await db.select().from(usersTable).where(eq(usersTable.vcn, targetVcn));
+  const [me]   = await db.select(safeUserCols).from(usersTable).where(eq(usersTable.vcn, myVcn));
+  const [them] = await db.select(safeUserCols).from(usersTable).where(eq(usersTable.vcn, targetVcn));
 
   if (!me)   { res.status(404).json({ error: "Your VCN was not found" }); return; }
   if (!them) { res.status(404).json({ error: "Target VCN not found" }); return; }
@@ -121,7 +155,15 @@ router.patch("/users/:vcn", async (req, res): Promise<void> => {
   if (statusText !== undefined) updates.statusText = statusText;
   if (avatarUrl !== undefined) updates.avatarUrl = avatarUrl;
 
-  const [updated] = await db.update(usersTable).set(updates).where(eq(usersTable.vcn, vcn)).returning();
+  const [updated] = await db.update(usersTable).set(updates).where(eq(usersTable.vcn, vcn)).returning({
+    id: usersTable.id,
+    vcn: usersTable.vcn,
+    phone: usersTable.phone,
+    displayName: usersTable.displayName,
+    avatarUrl: usersTable.avatarUrl,
+    statusText: usersTable.statusText,
+    createdAt: usersTable.createdAt,
+  });
   if (!updated) { res.status(404).json({ error: "User not found" }); return; }
   res.json(updated);
 });
@@ -156,7 +198,7 @@ router.post("/users/verify-otp", async (req, res): Promise<void> => {
   }
   otpStore.delete(phone);
 
-  const [existingUser] = await db.select().from(usersTable).where(eq(usersTable.phone, phone));
+  const existingUser = await fetchUserByPhone(phone);
   if (existingUser) {
     if (existingUser.banned) {
       logger.warn({ vcn: existingUser.vcn, phone }, "Banned user attempted login");
@@ -193,7 +235,6 @@ router.post("/users/initialize-contacts", async (req, res): Promise<void> => {
 });
 
 // ── Multi-device link codes ───────────────────────────────────────────────────
-// In-memory store: code → { vcn, expiresAt }
 const linkCodeStore = new Map<string, { vcn: string; expiresAt: number }>();
 
 function generateLinkCode(): string {
@@ -215,7 +256,7 @@ router.post("/users/generate-link-code", async (req, res): Promise<void> => {
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
 
   const code = generateLinkCode();
-  const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
+  const expiresAt = Date.now() + 10 * 60 * 1000;
   linkCodeStore.set(code, { vcn: user.vcn, expiresAt });
 
   logger.info({ vcn, code }, "Link code generated");
@@ -233,7 +274,7 @@ router.post("/users/verify-link-code", async (req, res): Promise<void> => {
   }
   linkCodeStore.delete(code);
 
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.vcn, stored.vcn));
+  const user = await fetchUserByVcn(stored.vcn);
   if (!user) { res.status(404).json({ error: "Account not found" }); return; }
   if (user.banned) { res.status(403).json({ error: "This account has been suspended" }); return; }
 
@@ -242,21 +283,25 @@ router.post("/users/verify-link-code", async (req, res): Promise<void> => {
 });
 
 // ── Admin endpoints ───────────────────────────────────────────────────────────
-// POST /api/admin/ban  { vcn, secret }
 router.post("/admin/ban", async (req, res): Promise<void> => {
   const { vcn, secret, unban } = req.body;
   const ADMIN_SECRET = process.env["ADMIN_SECRET"] ?? "chivra-admin-2026";
   if (secret !== ADMIN_SECRET) { res.status(403).json({ error: "Forbidden" }); return; }
   if (!vcn) { res.status(400).json({ error: "vcn required" }); return; }
 
-  const [updated] = await db.update(usersTable)
-    .set({ banned: !unban })
-    .where(eq(usersTable.vcn, vcn.toUpperCase()))
-    .returning({ vcn: usersTable.vcn, banned: usersTable.banned });
+  try {
+    const [updated] = await db.update(usersTable)
+      .set({ banned: !unban })
+      .where(eq(usersTable.vcn, vcn.toUpperCase()))
+      .returning({ vcn: usersTable.vcn, banned: usersTable.banned });
 
-  if (!updated) { res.status(404).json({ error: "User not found" }); return; }
-  logger.info({ vcn: updated.vcn, banned: updated.banned }, "Admin ban action");
-  res.json({ success: true, vcn: updated.vcn, banned: updated.banned });
+    if (!updated) { res.status(404).json({ error: "User not found" }); return; }
+    logger.info({ vcn: updated.vcn, banned: updated.banned }, "Admin ban action");
+    res.json({ success: true, vcn: updated.vcn, banned: updated.banned });
+  } catch (err) {
+    logger.error({ err }, "Admin ban failed — banned column may not exist in production DB yet");
+    res.status(503).json({ error: "Ban feature unavailable until schema sync. Republish the app to enable it." });
+  }
 });
 
 export default router;
