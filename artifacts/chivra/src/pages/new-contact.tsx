@@ -90,22 +90,50 @@ export default function NewContact() {
       return;
     }
     setIsGeneratingImage(true);
-    try {
-      const prompt = `A highly detailed, cinematic portrait of a ${formData.gender} named ${formData.name}. Personality: ${formData.personalityTone}. Dark, moody, neon violet lighting. Studio photography.`;
-      const res = await fetch("/api/openai/generate-image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, size: "512x512" }),
-      });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      setFormData(prev => ({ ...prev, avatarUrl: `data:image/png;base64,${data.b64_json}` }));
-      toast({ title: "Avatar generated" });
-    } catch {
-      toast({ title: "Failed to generate image", variant: "destructive" });
-    } finally {
-      setIsGeneratingImage(false);
+    const prompt = `A highly detailed, cinematic portrait of a ${formData.gender} named ${formData.name}. Personality: ${formData.personalityTone}. Dark, moody, neon violet lighting. Studio photography.`;
+    const MAX_ATTEMPTS = 3;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        const res = await fetch("/api/openai/generate-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt, size: "512x512" }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (!data.b64_json) throw new Error("No image data returned");
+        setFormData(prev => ({ ...prev, avatarUrl: `data:image/png;base64,${data.b64_json}` }));
+        toast({ title: "Avatar generated" });
+        setIsGeneratingImage(false);
+        return;
+      } catch (err) {
+        if (attempt < MAX_ATTEMPTS) {
+          await new Promise(r => setTimeout(r, 800 * attempt));
+        } else {
+          // On final failure, generate a gradient placeholder so creation still works
+          const colors = ["from-violet-600 to-pink-500", "from-blue-600 to-cyan-400", "from-emerald-600 to-teal-400", "from-orange-500 to-red-500"];
+          const color = colors[Math.floor(Math.random() * colors.length)];
+          // Use a canvas-based fallback gradient as avatar
+          const canvas = document.createElement("canvas");
+          canvas.width = 256; canvas.height = 256;
+          const ctx = canvas.getContext("2d")!;
+          const grad = ctx.createLinearGradient(0, 0, 256, 256);
+          grad.addColorStop(0, "#7c3aed");
+          grad.addColorStop(1, "#db2777");
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, 256, 256);
+          ctx.fillStyle = "rgba(255,255,255,0.9)";
+          ctx.font = "bold 96px serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(formData.name[0]?.toUpperCase() ?? "?", 128, 128);
+          const dataUrl = canvas.toDataURL("image/png");
+          setFormData(prev => ({ ...prev, avatarUrl: dataUrl }));
+          toast({ title: "Avatar created", description: "Using generated style avatar." });
+        }
+      }
     }
+    setIsGeneratingImage(false);
   };
 
   const handleCreateAI = (e: React.FormEvent) => {

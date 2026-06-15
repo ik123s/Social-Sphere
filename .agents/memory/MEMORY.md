@@ -1,0 +1,1 @@
+- [Production DB schema safety](prod-db-schema-safety.md) — bare SELECT * on usersTable crashes login if banned column missing from prod; use fetchUserByPhone/Vcn helpers with safe fallback

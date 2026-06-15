@@ -6,6 +6,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { initUser } from "@/lib/vcn";
 import { isOnboardingComplete } from "@/lib/onboarding";
+import { applyFontSize } from "@/lib/font-size";
+applyFontSize();
 import {
   fetchVersionInfo,
   resolveUpdateState,

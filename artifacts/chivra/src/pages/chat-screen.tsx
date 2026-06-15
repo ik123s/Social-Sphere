@@ -394,7 +394,7 @@ function MessageBubble({
           {msg.content}
         </div>
       ) : (
-        <div className={`${bubbleCls} px-4 py-2.5 text-[15px] leading-relaxed break-words`}>
+        <div className={`${bubbleCls} px-4 py-2.5 leading-relaxed break-words`} style={{ fontSize: "var(--app-chat-font-size, 15px)" }}>
           {msg.content}
         </div>
       )}
@@ -1020,7 +1020,7 @@ export default function ChatScreen() {
               {/* Streaming */}
               {streamingMessage && !isTyping && (
                 <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex items-start mt-3">
-                  <div className="max-w-[82%] px-4 py-2.5 rounded-2xl rounded-tl-sm shadow-sm text-[15px] leading-relaxed bg-card border border-primary/20 text-card-foreground">
+                  <div className="max-w-[82%] px-4 py-2.5 rounded-2xl rounded-tl-sm shadow-sm leading-relaxed bg-card border border-primary/20 text-card-foreground" style={{ fontSize: "var(--app-chat-font-size, 15px)" }}>
                     {streamingMessage}
                     <span className="inline-block w-1.5 h-3.5 ml-0.5 bg-primary/70 animate-pulse align-middle rounded-sm" />
                   </div>
