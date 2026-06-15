@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import {
   Send, ArrowLeft, Phone, Video, Mic,
   Image as ImageIcon, X, Play, Pause, Reply, CheckCheck,
-  MoreVertical, Search,
+  MoreVertical, Search, Smile, Download,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { format, isToday, isYesterday } from "date-fns";
@@ -55,6 +55,154 @@ function parseContactShare(content: string): { text: string; sharedContactId: nu
   if (!match) return { text: content, sharedContactId: null };
   const text = content.replace(/\[\[SHARE_CONTACT:\d+\]\]/g, "").trim();
   return { text, sharedContactId: parseInt(match[1]!, 10) };
+}
+
+// ── Emoji / Sticker data ──────────────────────────────────────────────────────
+const EMOJI_CATEGORIES: Record<string, string[]> = {
+  "Smileys": ["😀","😂","🤣","😍","🥹","😭","😊","😅","🤔","😤","😇","🥰","😘","😏","🙃","🤯","😱","🥺","😴","😬","🤡","🫠","🥱","😮‍💨","💀"],
+  "Hearts":  ["❤️","🧡","💛","💚","💙","💜","🖤","🤍","💕","💞","💓","💗","💖","💘","💝","🩷","🩶","🩵","❤️‍🔥","💔"],
+  "Hands":   ["👍","👎","👏","🙌","🤝","✌️","🤞","🫶","💪","👋","🤙","🫵","🙏","🤜","🤛","✋","🤚"],
+  "People":  ["🙋","🤷","🤦","💁","🙅","🙆","💅","🫣","🤫","🫡","🧠","👀","🫶","🥳","😎","🤩","🧐"],
+  "Nature":  ["🌟","⭐","🔥","💫","✨","❄️","🌈","☀️","🌙","⚡","🌊","🍀","🌸","🦋","🐝","🌻","🌹","🍃"],
+  "Fun":     ["💯","🎉","🎊","🎁","🎵","🎶","📸","💎","🏆","🎯","🎮","🍕","🍔","🥤","🧋","🍦","🎂","🎈"],
+};
+
+const STICKERS = [
+  "😂💀","🫶🏽","😭🙏","💀✋","🤣😭","❤️‍🔥","✨🌟","😍🥹",
+  "💪🔥","👑✨","🙌🏽😭","🥺❤️","😤💅","🤯🔥","😂🫵","💀😭",
+  "🫠✨","🥹💕","😎🤙","🌟💖",
+];
+
+// ── Emoji Picker ──────────────────────────────────────────────────────────────
+function EmojiPickerPanel({
+  onEmojiSelect,
+  onStickerSelect,
+  onClose,
+}: {
+  onEmojiSelect: (e: string) => void;
+  onStickerSelect: (s: string) => void;
+  onClose: () => void;
+}) {
+  const [tab, setTab] = useState<"emoji" | "sticker">("emoji");
+  const [category, setCategory] = useState("Smileys");
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 12, scale: 0.97 }}
+      transition={{ duration: 0.15 }}
+      className="absolute bottom-full left-0 mb-2 w-72 bg-card border border-border rounded-2xl shadow-2xl overflow-hidden z-50"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* Tab bar */}
+      <div className="flex border-b border-border">
+        <button
+          onClick={() => setTab("emoji")}
+          className={`flex-1 py-2.5 text-xs font-medium transition-colors ${tab === "emoji" ? "text-primary border-b-2 border-primary" : "text-muted-foreground"}`}
+        >
+          Emoji
+        </button>
+        <button
+          onClick={() => setTab("sticker")}
+          className={`flex-1 py-2.5 text-xs font-medium transition-colors ${tab === "sticker" ? "text-primary border-b-2 border-primary" : "text-muted-foreground"}`}
+        >
+          Stickers
+        </button>
+      </div>
+
+      {tab === "emoji" ? (
+        <>
+          {/* Category selector */}
+          <div className="flex gap-1 px-2 pt-2 pb-1 overflow-x-auto scrollbar-hide">
+            {Object.keys(EMOJI_CATEGORIES).map(cat => (
+              <button
+                key={cat}
+                onClick={() => setCategory(cat)}
+                className={`flex-shrink-0 text-[10px] px-2 py-1 rounded-full transition-colors ${category === cat ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+          {/* Emoji grid */}
+          <div className="grid grid-cols-8 gap-0.5 p-2 max-h-44 overflow-y-auto scrollbar-hide">
+            {(EMOJI_CATEGORIES[category] ?? []).map(emoji => (
+              <button
+                key={emoji}
+                onClick={() => { onEmojiSelect(emoji); onClose(); }}
+                className="h-8 w-8 flex items-center justify-center text-xl hover:bg-muted rounded-lg transition-colors active:scale-90"
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        </>
+      ) : (
+        /* Sticker grid */
+        <div className="grid grid-cols-5 gap-1 p-3 max-h-52 overflow-y-auto scrollbar-hide">
+          {STICKERS.map(sticker => (
+            <button
+              key={sticker}
+              onClick={() => { onStickerSelect(sticker); onClose(); }}
+              className="h-12 w-full flex items-center justify-center text-2xl hover:bg-muted rounded-xl transition-colors active:scale-90 border border-border/40"
+            >
+              {sticker}
+            </button>
+          ))}
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+// ── Image context menu ────────────────────────────────────────────────────────
+function ImageContextMenu({
+  src,
+  onSave,
+  onReply,
+  onClose,
+}: {
+  src: string;
+  onSave: () => void;
+  onReply: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="absolute inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ y: 60 }}
+        animate={{ y: 0 }}
+        exit={{ y: 60 }}
+        transition={{ type: "spring", stiffness: 400, damping: 30 }}
+        className="w-full bg-card rounded-t-3xl p-4 pb-10 border-t border-border"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex justify-center mb-4"><div className="w-10 h-1 bg-muted rounded-full" /></div>
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            { icon: <Download className="h-5 w-5" />, label: "Save image", action: onSave },
+            { icon: <Reply className="h-5 w-5" />, label: "Reply", action: onReply },
+          ].map(item => (
+            <button
+              key={item.label}
+              onClick={item.action}
+              className="flex flex-col items-center gap-2 py-4 bg-muted/50 hover:bg-muted rounded-2xl transition-colors"
+            >
+              <div className="text-foreground">{item.icon}</div>
+              <span className="text-xs font-medium">{item.label}</span>
+            </button>
+          ))}
+        </div>
+      </motion.div>
+    </motion.div>
+  );
 }
 
 // ── Waveform voice player ─────────────────────────────────────────────────────
@@ -172,8 +320,19 @@ interface Msg {
   replyTo?: { sender: string; content: string } | null;
 }
 
-function MessageBubble({ msg, isSameGroup, isLast }: { msg: Msg; isSameGroup: boolean; isLast: boolean }) {
+function MessageBubble({
+  msg,
+  isSameGroup,
+  isLast,
+  onImageLongPress,
+}: {
+  msg: Msg;
+  isSameGroup: boolean;
+  isLast: boolean;
+  onImageLongPress: (src: string) => void;
+}) {
   const isUser = msg.sender === "user";
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const bubbleCls = `max-w-[82%] shadow-sm ${
     isUser
@@ -183,6 +342,19 @@ function MessageBubble({ msg, isSameGroup, isLast }: { msg: Msg; isSameGroup: bo
 
   const replyBg  = isUser ? "bg-primary-foreground/15" : "bg-muted/60";
   const replyBar = isUser ? "bg-primary-foreground/60" : "bg-primary";
+
+  const handleImageTouchStart = (src: string) => {
+    longPressTimerRef.current = setTimeout(() => {
+      onImageLongPress(src);
+    }, 500);
+  };
+
+  const handleImageTouchEnd = () => {
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+  };
+
+  // Sticker detection — short emoji-only text
+  const isSticker = msg.messageType === "text" && /^\p{Emoji}{1,4}$/u.test(msg.content.trim()) && msg.content.trim().length <= 8;
 
   return (
     <div className={`flex flex-col ${isUser ? "items-end" : "items-start"} gap-0.5`}>
@@ -198,12 +370,28 @@ function MessageBubble({ msg, isSameGroup, isLast }: { msg: Msg; isSameGroup: bo
       )}
 
       {msg.messageType === "image" ? (
-        <div className={`${bubbleCls} overflow-hidden`}>
-          <img src={msg.content} alt="Shared" className="max-w-full rounded-2xl object-cover" style={{ maxHeight: 280 }} />
+        <div
+          className={`${bubbleCls} overflow-hidden cursor-pointer`}
+          onTouchStart={() => handleImageTouchStart(msg.content)}
+          onTouchEnd={handleImageTouchEnd}
+          onTouchCancel={handleImageTouchEnd}
+          onContextMenu={(e) => { e.preventDefault(); onImageLongPress(msg.content); }}
+        >
+          <img
+            src={msg.content}
+            alt="Shared"
+            className="max-w-full rounded-2xl object-cover"
+            style={{ maxHeight: 280 }}
+            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+          />
         </div>
       ) : msg.messageType === "audio" ? (
         <div className={`${bubbleCls} px-3 py-2.5`}>
           <VoiceNotePlayer src={msg.content} isUser={isUser} />
+        </div>
+      ) : isSticker ? (
+        <div className={`text-5xl leading-tight select-none`}>
+          {msg.content}
         </div>
       ) : (
         <div className={`${bubbleCls} px-4 py-2.5 text-[15px] leading-relaxed break-words`}>
@@ -280,6 +468,8 @@ export default function ChatScreen() {
   const [isSending,        setIsSending]        = useState(false);
   const [replyTo,          setReplyTo]          = useState<{ sender: string; content: string } | null>(null);
   const [showMicModal,     setShowMicModal]     = useState(false);
+  const [showEmojiPicker,  setShowEmojiPicker]  = useState(false);
+  const [imageMenu,        setImageMenu]        = useState<{ src: string; replyContent: string } | null>(null);
 
   // Image
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -331,6 +521,14 @@ export default function ChatScreen() {
 
   useEffect(() => { scrollToBottom(); }, [messages, streamingMessage, isTyping]);
 
+  // Close emoji picker when clicking outside
+  useEffect(() => {
+    if (!showEmojiPicker) return;
+    const handler = () => setShowEmojiPicker(false);
+    window.addEventListener("click", handler);
+    return () => window.removeEventListener("click", handler);
+  }, [showEmojiPicker]);
+
   // Paste image from clipboard
   useEffect(() => {
     const handler = (e: ClipboardEvent) => {
@@ -358,6 +556,17 @@ export default function ChatScreen() {
     el.style.height = Math.min(el.scrollHeight, 120) + "px";
   };
 
+  // ── Save image ───────────────────────────────────────────────────────────────
+  const saveImage = (src: string) => {
+    const link = document.createElement("a");
+    link.href = src;
+    link.download = `chivra-photo-${Date.now()}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast({ title: "Image saved" });
+  };
+
   // ── Send message ────────────────────────────────────────────────────────────
   const sendMessage = async (content: string, messageType: "text" | "image" | "audio" = "text") => {
     if (!content || !contactId || isSending) return;
@@ -378,7 +587,8 @@ export default function ChatScreen() {
     setImagePreview(null);
     scrollToBottom(true);
 
-    if (messageType !== "text") {
+    // Audio only: fire and forget, no AI response
+    if (messageType === "audio") {
       try {
         await fetch(`/api/contacts/${contactId}/messages`, {
           method: "POST",
@@ -386,56 +596,95 @@ export default function ChatScreen() {
           body: JSON.stringify({ content, messageType }),
         });
         queryClient.invalidateQueries({ queryKey: getListContactsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(contactId) });
       } catch { /* ignore */ }
       setIsSending(false);
       return;
     }
 
+    // Text and images both go through SSE (images trigger AI vision response)
     setIsTyping(true);
     try {
       const res = await fetch(`/api/contacts/${contactId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content, messageType: "text" }),
+        body: JSON.stringify({ content, messageType }),
       });
       if (!res.ok) throw new Error();
-      await new Promise(r => setTimeout(r, 500 + Math.random() * 800));
+      await new Promise(r => setTimeout(r, 400 + Math.random() * 600));
       setIsTyping(false);
       setStreamingMessage("");
 
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
       if (reader) {
-        let fullAiMessage = "";
+        let currentPart = "";
+        const committedIds: number[] = [];
+
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
+
           for (const line of decoder.decode(value).split("\n")) {
-            if (line.startsWith("data: ")) {
-              try {
-                const data = JSON.parse(line.slice(6));
-                if (data.content) {
-                  fullAiMessage += data.content;
-                  setStreamingMessage(stripSendImageToken(fullAiMessage));
+            if (!line.startsWith("data: ")) continue;
+            try {
+              const data = JSON.parse(line.slice(6));
+
+              if (data.break) {
+                // Commit current streaming part as a message bubble
+                if (currentPart.trim()) {
+                  const msgId = Date.now() + committedIds.length + 1;
+                  committedIds.push(msgId);
+                  const committed = currentPart.trim();
+                  setMessages(prev => [...prev, {
+                    id: msgId,
+                    contactId,
+                    sender: "ai",
+                    content: committed,
+                    messageType: "text",
+                    isRead: true,
+                    createdAt: new Date().toISOString(),
+                  }]);
                 }
-              } catch { /* ignore */ }
-            }
+                currentPart = "";
+                setStreamingMessage("");
+
+                // Show typing indicator between messages
+                setIsTyping(true);
+                await new Promise(r => setTimeout(r, 700 + Math.random() * 700));
+                setIsTyping(false);
+
+              } else if (data.content) {
+                currentPart += data.content;
+                setStreamingMessage(stripSendImageToken(currentPart));
+              }
+            } catch { /* ignore */ }
           }
         }
-        if (fullAiMessage) {
-          const displayMsg = stripSendImageToken(fullAiMessage);
+
+        // Commit final part
+        if (currentPart.trim()) {
+          const displayMsg = stripSendImageToken(currentPart.trim());
           setMessages(prev => [...prev, {
-            id: Date.now() + 1, contactId, sender: "ai", content: displayMsg || fullAiMessage,
-            messageType: "text", isRead: true, createdAt: new Date().toISOString(),
+            id: Date.now() + 99,
+            contactId,
+            sender: "ai",
+            content: displayMsg || currentPart,
+            messageType: "text",
+            isRead: true,
+            createdAt: new Date().toISOString(),
           }]);
-          setStreamingMessage("");
-          queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(contactId) });
-          queryClient.invalidateQueries({ queryKey: getListContactsQueryKey() });
-          // Re-fetch after delay to pick up any AI-generated image (image gen takes ~10s)
-          setTimeout(() => {
-            queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(contactId) });
-          }, 13000);
         }
+        setStreamingMessage("");
+
+        // Sync with DB (DB has the authoritative split messages)
+        queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(contactId) });
+        queryClient.invalidateQueries({ queryKey: getListContactsQueryKey() });
+
+        // Re-fetch after delay to pick up any AI-generated image (~10s generation)
+        setTimeout(() => {
+          queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(contactId) });
+        }, 13000);
       }
     } catch {
       setIsTyping(false);
@@ -535,6 +784,18 @@ export default function ChatScreen() {
         {/* ── Mic permission modal ─────────────────────────────────────────── */}
         <AnimatePresence>
           {showMicModal && <MicPermissionModal onClose={() => setShowMicModal(false)} />}
+        </AnimatePresence>
+
+        {/* ── Image context menu ────────────────────────────────────────────── */}
+        <AnimatePresence>
+          {imageMenu && (
+            <ImageContextMenu
+              src={imageMenu.src}
+              onSave={() => { saveImage(imageMenu.src); setImageMenu(null); }}
+              onReply={() => { setReplyTo({ sender: "ai", content: "[photo]" }); setImageMenu(null); }}
+              onClose={() => setImageMenu(null)}
+            />
+          )}
         </AnimatePresence>
 
         {/* ── Click-away to close menu ─────────────────────────────────────── */}
@@ -722,7 +983,12 @@ export default function ChatScreen() {
                           return (
                             <div className={`flex flex-col ${isUser ? "items-end" : "items-start"}`}>
                               {displayMsg.content && (
-                                <MessageBubble msg={displayMsg} isSameGroup={isSameGroup} isLast={isLastUser} />
+                                <MessageBubble
+                                  msg={displayMsg}
+                                  isSameGroup={isSameGroup}
+                                  isLast={isLastUser}
+                                  onImageLongPress={(src) => setImageMenu({ src, replyContent: "[photo]" })}
+                                />
                               )}
                               {parsed?.sharedContactId && (
                                 <ContactShareCard
@@ -840,6 +1106,27 @@ export default function ChatScreen() {
 
               {/* Multiline auto-grow textarea */}
               <div className="flex-1 relative">
+                {/* Emoji picker anchor */}
+                <div className="relative" onClick={e => e.stopPropagation()}>
+                  <AnimatePresence>
+                    {showEmojiPicker && (
+                      <EmojiPickerPanel
+                        onEmojiSelect={(emoji) => {
+                          setInput(prev => prev + emoji);
+                          textareaRef.current?.focus();
+                          setTimeout(() => {
+                            if (textareaRef.current) autoGrow(textareaRef.current);
+                          }, 0);
+                        }}
+                        onStickerSelect={(sticker) => {
+                          sendMessage(sticker, "text");
+                        }}
+                        onClose={() => setShowEmojiPicker(false)}
+                      />
+                    )}
+                  </AnimatePresence>
+                </div>
+
                 <textarea
                   ref={textareaRef}
                   value={input}
@@ -856,9 +1143,19 @@ export default function ChatScreen() {
                       if (imagePreview || input.trim()) handleSend(e as any);
                     }
                   }}
-                  className="w-full min-h-[44px] max-h-[120px] resize-none py-2.5 pl-3.5 pr-12 bg-muted/40 border border-transparent focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-2xl text-[15px] leading-relaxed overflow-y-auto placeholder:text-muted-foreground/60"
+                  className="w-full min-h-[44px] max-h-[120px] resize-none py-2.5 pl-10 pr-12 bg-muted/40 border border-transparent focus:outline-none focus:ring-1 focus:ring-primary/30 rounded-2xl text-[15px] leading-relaxed overflow-y-auto placeholder:text-muted-foreground/60"
                   style={{ height: "44px" }}
                 />
+
+                {/* Emoji button inside textarea (left side) */}
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setShowEmojiPicker(v => !v); }}
+                  className="absolute left-2.5 bottom-[11px] text-muted-foreground hover:text-primary transition-colors"
+                >
+                  <Smile className="h-5 w-5" />
+                </button>
+
                 {(input.trim() || imagePreview) ? (
                   <Button type="submit" size="icon" disabled={isSending}
                     className="absolute right-1.5 bottom-[5px] h-8 w-8 rounded-xl bg-primary flex-shrink-0"

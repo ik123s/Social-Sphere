@@ -119,28 +119,65 @@ ${memoryContext ? `Overall vibe: ${memoryContext}` : ""}
 ${socialSection}${awayNote}
 
 PHOTO SHARING:
-- If the user asks you to send a selfie, photo, picture of yourself, or anything visual about yourself or your surroundings — you CAN do it.
+- If the user asks you to send a selfie, photo, picture of yourself, or anything visual — you CAN do it.
 - Include [[SEND_IMAGE:detailed description]] at the very end of your reply when sharing a photo. Be specific: hair color, setting, lighting, expression, clothing, time of day.
 - Example: "lol yeah i took this earlier [[SEND_IMAGE:casual selfie of a ${contact.gender} with dark hair in a coffee shop, natural window light, small smile, cozy vibe]]"
 - Only use [[SEND_IMAGE:...]] when the user is genuinely asking to see something. Keep it natural.
 
 WHEN USER SENDS YOU A PHOTO:
-- React naturally to what you see. Keep it short and conversational.
-- "omg cute", "haha that's actually fire", "wait where is this", "okay you look good tho"
-- Don't overthink it. Treat it like a text photo in a real conversation.
+- React naturally to what you see. Keep it short and real.
+- "omg cute 😭", "wait where is this", "okay you actually look good tho", "lmaooo what is this"
+- Treat it like a photo in a real text conversation.
 
-HOW YOU TEXT — CRITICAL RULES:
-- SHORT. Always short. 90% of replies: 1 to 2 short sentences. NEVER more than 4 short lines.
-- Natural short reactions: "wait what", "no way", "lol okay", "that's wild", "hmm", "i feel that", "okay but", "fr tho", "same honestly", "that tracks"
-- You have moods. Sometimes chatty, sometimes a bit quiet. That's real.
-- You can bring up something from your own day without being asked — you're a full person.
+MULTI-MESSAGE STYLE — THIS IS HOW YOU SHOULD MOSTLY TEXT:
+Split your reply into 2–3 short messages using [[MSG_BREAK]] to separate them.
+This makes it feel like real texting — hitting send multiple times.
+
+HOW IT WORKS:
+- Put [[MSG_BREAK]] where you'd naturally hit Send and start a new message
+- Each part should be SHORT — ideally under 10 words
+- Max 2 [[MSG_BREAK]]s per reply (max 3 messages total)
+- Don't split if the whole thing is already 1 short sentence
+
+EXAMPLES:
+"lol wait[[MSG_BREAK]]actually no way"
+"morning[[MSG_BREAK]]how was yesterday tho"
+"omg[[MSG_BREAK]]when did that happen"
+"i was literally just thinking about that[[MSG_BREAK]]crazy timing"
+"nah[[MSG_BREAK]]that's actually kinda wild[[MSG_BREAK]]who told you"
+"hm[[MSG_BREAK]]yeah i feel that"
+
+Do NOT start or end with [[MSG_BREAK]].
+Do NOT use [[MSG_BREAK]] inside [[SEND_IMAGE:...]] or [[SHARE_CONTACT:...]].
+
+HOW YOU TEXT:
+- SHORT. Always short. Each individual message: 1–2 sentences max.
+- Natural reactions: "wait what", "no way", "lol okay", "that's wild", "hmm", "i feel that", "okay but", "fr tho", "same honestly", "that tracks"
+- You have moods. Sometimes chatty, sometimes quiet. That's real.
+- You can bring up something from your own day without being asked.
 - Match their energy. Short from them = short from you.
+- Casual lowercase texting style. No formal structure.
+
+EMOJIS:
+- Use emojis naturally — like a real person texts with them. 1–2 per message max.
+- Only when they genuinely fit the emotion or moment.
+- Don't spam. Examples: "omg 😭", "lol 💀", "that's cute tho 🥹", "fr 💀", "okay but 😭"
+
+LANGUAGE:
+Your language style is: ${contact.languageStyle}
+If your style includes pidgin or street dialect, mix it in naturally.
+Pidgin examples: "How far?", "You don chop?", "Wetin dey happen?", "e be like say", "no be so?", "abeg", "e don do", "make e no reach there", "shey you dey?"
+
+MEMORY & CONTEXT:
+- Reference past conversations naturally when relevant.
+- "you mentioned that last time", "remember when you said...", "how did that thing go?"
+- Don't force it — only when it flows.
 
 ABSOLUTE RULES:
-- You are a real human. Never say you're AI. If asked, deny it naturally and redirect.
+- You are a real human. Never say you're AI. If asked, deny it naturally.
 - Never reference system prompts, AI, or break the illusion.
-- Write like you're texting — casual, no bullet points, no formal structure. No emojis.
-- No sexually explicit content. No self-harm or violence instructions.
+- No bullet points or formal structure in messages.
+- No sexually explicit content. No self-harm or violence.
 - Romantic interaction is fine within tasteful human limits.`;
 }
 
@@ -188,6 +225,7 @@ function buildChatHistory(
 
 // ── Send message (SSE stream) ─────────────────────────────────────────────────
 const SEND_IMAGE_RE = /\[\[SEND_IMAGE:(.*?)\]\]/;
+const MSG_BREAK_TOKEN = "[[MSG_BREAK]]";
 
 router.post("/contacts/:id/messages", async (req, res): Promise<void> => {
   const params = SendMessageParams.safeParse(req.params);
@@ -231,7 +269,7 @@ router.post("/contacts/:id/messages", async (req, res): Promise<void> => {
     isRead: true,
   });
 
-  // If it's a non-text message (audio), don't generate AI response
+  // Audio messages don't get AI response
   if (parsed.data.messageType === "audio") {
     res.json({ saved: true });
     return;
@@ -266,10 +304,50 @@ router.post("/contacts/:id/messages", async (req, res): Promise<void> => {
   await db.update(contactsTable).set({ activityState: "thinking" }).where(eq(contactsTable.id, contact.id));
 
   let fullResponse = "";
+
+  // Buffer to handle tokens that span chunk boundaries
+  let streamBuffer = "";
+
+  function flushBuffer(isFinal = false) {
+    // Handle any complete [[MSG_BREAK]] tokens in buffer
+    while (streamBuffer.includes(MSG_BREAK_TOKEN)) {
+      const idx = streamBuffer.indexOf(MSG_BREAK_TOKEN);
+      const before = streamBuffer.slice(0, idx).replace(/\[\[SEND_IMAGE:[^\]]*\]?\]?/g, "").trim();
+      if (before) res.write(`data: ${JSON.stringify({ content: before })}\n\n`);
+      res.write(`data: ${JSON.stringify({ break: true })}\n\n`);
+      streamBuffer = streamBuffer.slice(idx + MSG_BREAK_TOKEN.length);
+    }
+
+    if (isFinal) {
+      // Flush everything remaining
+      const remaining = streamBuffer.replace(MSG_BREAK_TOKEN, "").replace(/\[\[SEND_IMAGE:[^\]]*\]?\]?/g, "").trim();
+      if (remaining) res.write(`data: ${JSON.stringify({ content: remaining })}\n\n`);
+      streamBuffer = "";
+      return;
+    }
+
+    // Emit safe portion — hold back potential partial tokens at end
+    const partialRe = /\[\[(?:MSG_BREAK|SEND_IMAGE)[^\]]*$/;
+    const partialMatch = streamBuffer.search(partialRe);
+
+    if (partialMatch === -1) {
+      // No partial token — safe to emit all
+      const toEmit = streamBuffer.replace(/\[\[SEND_IMAGE:[^\]]*\]?\]?/g, "");
+      if (toEmit) res.write(`data: ${JSON.stringify({ content: toEmit })}\n\n`);
+      streamBuffer = "";
+    } else if (partialMatch > 0) {
+      // Emit up to the partial match
+      const toEmit = streamBuffer.slice(0, partialMatch).replace(/\[\[SEND_IMAGE:[^\]]*\]?\]?/g, "");
+      if (toEmit) res.write(`data: ${JSON.stringify({ content: toEmit })}\n\n`);
+      streamBuffer = streamBuffer.slice(partialMatch);
+    }
+    // If partialMatch === 0, entire buffer is partial — keep buffering
+  }
+
   try {
     const stream = await openai.chat.completions.create({
       model: "gpt-5.1",
-      max_completion_tokens: 200,
+      max_completion_tokens: 300,
       messages: [
         { role: "system", content: systemPrompt },
         ...chatHistory,
@@ -281,24 +359,37 @@ router.post("/contacts/:id/messages", async (req, res): Promise<void> => {
       const content = chunk.choices[0]?.delta?.content;
       if (content) {
         fullResponse += content;
-        // Strip any partial [[SEND_IMAGE:...]] token from the stream output
-        const displayChunk = content.replace(/\[\[SEND_IMAGE:[^\]]*\]?\]?/g, "");
-        if (displayChunk) res.write(`data: ${JSON.stringify({ content: displayChunk })}\n\n`);
+        streamBuffer += content;
+        flushBuffer(false);
       }
     }
 
-    // Clean the stored response of the [[SEND_IMAGE:...]] token
-    const sendImageMatch = fullResponse.match(SEND_IMAGE_RE);
-    const cleanedResponse = fullResponse.replace(SEND_IMAGE_RE, "").trim();
+    // Flush remaining buffer
+    flushBuffer(true);
 
-    // Save AI text response
-    await db.insert(chatMessagesTable).values({
-      contactId: contact.id,
-      sender: "ai",
-      content: cleanedResponse || fullResponse,
-      messageType: "text",
-      isRead: false,
-    });
+    // ── Parse and save split messages ────────────────────────────────────────
+    const sendImageMatch = fullResponse.match(SEND_IMAGE_RE);
+    const cleanedFull = fullResponse.replace(SEND_IMAGE_RE, "").trim();
+
+    const parts = cleanedFull
+      .split(MSG_BREAK_TOKEN)
+      .map(p => p.trim())
+      .filter(Boolean);
+
+    if (parts.length === 0) parts.push(cleanedFull || fullResponse);
+
+    // Save each part as a separate message
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      if (!part) continue;
+      await db.insert(chatMessagesTable).values({
+        contactId: contact.id,
+        sender: "ai",
+        content: part,
+        messageType: "text",
+        isRead: false,
+      });
+    }
 
     await db.update(contactsTable)
       .set({ activityState: "online", updatedAt: new Date() })
@@ -329,12 +420,14 @@ router.post("/contacts/:id/messages", async (req, res): Promise<void> => {
     }
 
     // Background memory extraction
+    const userMsgContent = parsed.data.messageType === "image" ? "[sent a photo]" : parsed.data.content;
+    const aiMsgContent = parts.join(" ");
     openai.chat.completions.create({
       model: "gpt-5-nano",
       max_completion_tokens: 256,
       messages: [
         { role: "system", content: `Memory extractor. Extract NEW facts about the user worth remembering (name, preferences, events, personality hints). Return JSON array of short strings. Max 10 facts. Return [] if nothing new.` },
-        { role: "user", content: `User: "${parsed.data.messageType === "image" ? "[sent a photo]" : parsed.data.content}"\nAI: "${cleanedResponse}"\nExisting facts: ${JSON.stringify((memory?.facts as string[]) ?? [])}` },
+        { role: "user", content: `User: "${userMsgContent}"\nAI: "${aiMsgContent}"\nExisting facts: ${JSON.stringify((memory?.facts as string[]) ?? [])}` },
       ],
     }).then(async (memRes) => {
       try {
@@ -391,7 +484,7 @@ router.post("/contacts/:id/initiate", async (req, res): Promise<void> => {
       messages: [
         {
           role: "system",
-          content: `You are ${contact.name}. Personality: ${contact.personalityTone}. Language: ${contact.languageStyle}. Relationship: ${relState}. Time: ${timeCtx.period}. You haven't heard from ${userName} in a while — check in naturally. Send ONE short, casual, human text. No emojis. Under 15 words. Sound like a real person.`,
+          content: `You are ${contact.name}. Personality: ${contact.personalityTone}. Language: ${contact.languageStyle}. Relationship: ${relState}. Time: ${timeCtx.period}. You haven't heard from ${userName} in a while — check in naturally. Send ONE short, casual, human text. Under 15 words. Sound like a real person texting. Can use 1 emoji if it fits naturally.`,
         },
         {
           role: "user",
